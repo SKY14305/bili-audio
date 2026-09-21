@@ -1,0 +1,26 @@
+# 编译中间产物（本项目 target 目录约 7.9 GB）
+src-tauri/target/
+
+# tauri-build 每次构建自动生成的权限 schema（Tauri 官方模板同样忽略）
+src-tauri/gen/schemas/
+
+# 依赖
+node_modules/
+
+# 临时目录（产物校验导出的图、冒烟测试副本等）
+tmp/
+
+# 构建产物目录：EXE / 安装包 / 用户数据
+# 产物走 GitHub Releases 分发，不进源码树；data/ 是运行时用户数据（登录态 / 历史 /
+# 播放列表 / 收藏列表），含真实 cookie，绝不入库
+dist/
+data/
+
+# 本地文档（内部实现与踩坑记录，不入库）
+docs/
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini

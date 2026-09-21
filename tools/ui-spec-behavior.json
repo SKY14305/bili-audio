@@ -1,0 +1,32 @@
+{
+  "_comment": "行为回归用例（与 ui-spec.json 的版式用例分开）：队列去重 / 下一首播放排序 / 顶层弹层互斥。期望值取自改动意图，不取自实测值。",
+  "url": "http://127.0.0.1:37212/",
+  "serve": { "dir": "../frontend", "port": 37212 },
+  "viewport": [420, 780],
+  "freeze": true,
+  "setup": "(async function(){var t={};window.__t=t;var wait=function(ms){return new Promise(function(r){setTimeout(r,ms)});};var hid=function(id){return document.getElementById(id).classList.contains('hidden')};var keys=function(l){return l.map(entryKey).join(',')};var bvids=function(l){return l.map(function(e){return e.bvid}).join('')};queue=[{bvid:'SEED',cid:9,title:'seed'}];currentIndex=0;await addToQueue({bvid:'BV1',cid:11,title:'t'});await addToQueue({bvid:'BV1',cid:11,title:'t'});t.realAppend=queue.length+'|'+keys(queue);queue=[{bvid:'BV1',cid:null,title:'x'}];currentIndex=0;await addToQueue({bvid:'BV1',cid:123,title:'x'});t.realCidlessAppend=queue.length+'|'+keys(queue);queue=[{bvid:'BV1',cid:null,title:'x'},{bvid:'B',cid:2,title:'b'}];currentIndex=0;await insertNext({bvid:'BV1',cid:123,title:'x'});t.realCidlessNext=queue.length+'|'+bvids(queue);queue=[{bvid:'A',cid:1,title:'a'},{bvid:'B',cid:2,title:'b'},{bvid:'C',cid:3,title:'c'}];currentIndex=0;await insertNext({bvid:'C',cid:3,title:'c'});t.realNext=bvids(queue)+'|'+currentIndex;var a=mergeAppend([{bvid:'A',cid:1},{bvid:'B',cid:2}],[{bvid:'A',cid:1},{bvid:'C',cid:3}]);t.append=a.added+'/'+a.skipped+'/'+a.list.map(function(e){return e.bvid+e.cid}).join(',');var n=mergeInsertNext([{bvid:'A',cid:1},{bvid:'B',cid:2},{bvid:'C',cid:3},{bvid:'D',cid:4}],1,[{bvid:'D',cid:4}]);t.nextMove=bvids(n.list)+'/'+n.index+'/'+n.moved+'/'+n.added+'/'+n.noop;var d=mergeInsertNext([{bvid:'A',cid:1}],0,[{bvid:'X',cid:9},{bvid:'X',cid:9}]);t.nextDup=d.list.length+'/'+d.added;var p=mergeInsertNext([{bvid:'A',cid:1},{bvid:'B',cid:2}],0,[{bvid:'A',cid:1}]);t.nextPlaying=p.noop+'/'+p.playing+'/'+p.list.length;var z=mergeInsertNext([{bvid:'A',cid:1},{bvid:'B',cid:2}],0,[{bvid:'B',cid:2}]);t.nextNoop=z.noop+'/'+z.list.length;var k=mergeAppend([{bvid:'A',cid:1}],[{bvid:'A',cid:2}]);t.partKey=k.added+'/'+k.list.length;var w1=mergeAppend([{bvid:'A',cid:null}],[{bvid:'A',cid:123}]);t.wildAppend=w1.added+'/'+w1.skipped+'/'+w1.list.length;var w2=mergeAppend([{bvid:'A',cid:123}],[{bvid:'A',cid:null}]);t.wildAppend2=w2.added+'/'+w2.skipped;var w3=mergeInsertNext([{bvid:'X',cid:1},{bvid:'Y',cid:5},{bvid:'A',cid:null}],0,[{bvid:'A',cid:123}]);t.wildNext=bvids(w3.list)+'/'+w3.index+'/'+w3.moved;var w4=mergeAppend([{bvid:'A',cid:1},{bvid:'A',cid:null}],[{bvid:'A',cid:2}]);t.wildSame=w4.added+'/'+w4.skipped+'/'+w4.list.length;openCollections();await wait(320);t.f1=!hid('collectionsModal');openPanel('playlist');await wait(320);t.f2=hid('collectionsModal');t.f2b=!hid('panelModal')+'|'+currentPanel;var real=loadComments;loadComments=function(){};showComments(1,'评论');loadComments=real;await wait(320);t.f3=hid('panelModal')+'|'+!hid('commentsModal');openCollections();await wait(320);t.f4=hid('commentsModal')+'|'+!hid('collectionsModal');closeCollections();await wait(320);t.f5=hid('collectionsModal');openCollections();await wait(320);return 1})()",
+  "settle": 400,
+  "assert": [
+    { "name": "添加播放列表：同一条目只入队一次（真实入口）", "expr": "window.__t.realAppend", "eq": "2|SEED:9,BV1:11" },
+    { "name": "队列项cid缺失时 收藏列表里同一条目不再被重复添加（真实入口）", "expr": "window.__t.realCidlessAppend", "eq": "1|BV1:" },
+    { "name": "正在播放项cid缺失时 同内容不被重复排入（真实入口）", "expr": "window.__t.realCidlessNext", "eq": "2|BV1B" },
+    { "name": "下一首播放：已存在条目被移动到下一首（真实入口）", "expr": "window.__t.realNext", "eq": "ACB|1" },
+    { "name": "添加播放列表：跳过已存在条目 新增1/跳过1", "expr": "window.__t.append", "eq": "1/1/A1,B2,C3" },
+    { "name": "下一首播放：队列中已有条目改为移动 ABDC 而非重复", "expr": "window.__t.nextMove", "eq": "ABDC/2/1/0/false" },
+    { "name": "下一首播放：同批重复传入只算一次", "expr": "window.__t.nextDup", "eq": "2/1" },
+    { "name": "下一首播放：正在播放的条目不移动", "expr": "window.__t.nextPlaying", "eq": "true/1/2" },
+    { "name": "下一首播放：已在本就下一首时不重复插入", "expr": "window.__t.nextNoop", "eq": "true/2" },
+    { "name": "多P分P视为不同条目（cid 参与去重）", "expr": "window.__t.partKey", "eq": "1/2" },
+    { "name": "cid缺失项与带cid同内容 判为同一条（不追加）", "expr": "window.__t.wildAppend", "eq": "0/1/1" },
+    { "name": "反向：队列有cid、来源缺cid 同样判为同一条", "expr": "window.__t.wildAppend2", "eq": "0/1" },
+    { "name": "cid缺失项仍可被移动到下一首（移动而非重复）", "expr": "window.__t.wildNext", "eq": "XAY/1/1" },
+    { "name": "队列里已有cid缺失的同视频条目时 其他分P也不重复入队（保守）", "expr": "window.__t.wildSame", "eq": "0/1/2" },
+    { "name": "收藏列表窗口能打开", "expr": "window.__t.f1", "eq": true },
+    { "name": "打开播放列表后 收藏列表窗口被收起（且播放列表已打开）", "expr": "window.__t.f2 + '|' + window.__t.f2b", "eq": "true|true|playlist" },
+    { "name": "打开评论后 播放列表被收起（且评论已打开）", "expr": "window.__t.f3", "eq": "true|true" },
+    { "name": "打开收藏列表后 评论被收起（且收藏列表已打开）", "expr": "window.__t.f4", "eq": "true|true" },
+    { "name": "关闭收藏列表后确实隐藏", "expr": "window.__t.f5", "eq": true },
+    { "name": "收藏列表窗口尺寸仍为 380x520", "sel": "#collectionsModal .sheet-box", "rect": { "width": 380, "height": 520 }, "tol": 0.6 },
+    { "name": "收藏列表打开时 播放列表/评论均为隐藏（互斥后只留一个）", "expr": "(function(){return document.getElementById('panelModal').classList.contains('hidden') + '|' + document.getElementById('commentsModal').classList.contains('hidden') + '|' + document.getElementById('collectionsModal').classList.contains('hidden');})()", "eq": "true|true|false" }
+  ]
+}

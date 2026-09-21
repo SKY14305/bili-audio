@@ -1,0 +1,47 @@
+[package]
+name = "bili-audio"
+version = "1.0.0"
+description = "bili Audio"
+authors = ["bili Audio"]
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "bili_audio_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "bili-audio"
+path = "src/main.rs"
+
+[features]
+default = []
+# 开发调试特性：额外在 127.0.0.1:37210 监听 TCP HTTP 服务，便于直接用浏览器打开界面调试。
+# 封装（release）构建默认关闭，界面与 API 一律走 Tauri 自定义协议，不占用任何端口。
+dev-server = []
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# HTTP 服务与 B 站代理
+axum = "0.8"
+tokio = { version = "1.44.2", features = ["full"] }
+tower = { version = "0.5", features = ["util"] }
+reqwest = { version = "0.12", features = ["json", "gzip", "brotli", "deflate", "stream"] }
+md-5 = "0.10"
+url = "2"
+urlencoding = "2"
+# 内嵌前端静态资源
+rust-embed = "8"
+mime_guess = "2"
+futures-util = "0.3.7"
+
+[profile.release]
+opt-level = "s"
+strip = true

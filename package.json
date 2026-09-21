@@ -1,0 +1,13 @@
+{
+  "name": "bili-audio",
+  "version": "1.0.0",
+  "description": "bili Audio - B站音频播放器（Tauri 2.0）",
+  "scripts": {
+    "tauri": "tauri",
+    "build": "tauri build",
+    "dev": "tauri dev"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4"
+  }
+}

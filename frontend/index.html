@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>bili Audio</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="topbar" data-tauri-drag-region="deep">
+    <!-- 第一行：LOGO + 名称（点击回首页） / 账号区 / 窗口控制 -->
+    <div class="titlebar" data-tauri-drag-region>
+      <button id="brandBtn" class="brand" type="button" title="回到首页">
+        <!-- 品牌 LOGO：软件图标的矢量母版在 src-tauri/icons/brand-logo.svg（同一份图形）。
+             改图标要两处一起改：这里 + brand-logo.svg，再由它生成整包图标。 -->
+        <span class="brand-logo" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 24 24">
+            <rect x="0.5" y="0.5" width="23" height="23" rx="7" fill="#18181b"></rect>
+            <rect x="6" y="10" width="2.6" height="4" rx="1.3" fill="#ffffff"></rect>
+            <rect x="10.7" y="6.8" width="2.6" height="10.4" rx="1.3" fill="#ffffff"></rect>
+            <rect x="15.4" y="8.6" width="2.6" height="6.8" rx="1.3" fill="#ffffff"></rect>
+          </svg>
+        </span>
+        <span class="brand-text">bili Audio</span>
+      </button>
+
+      <span class="titlebar-drag" data-tauri-drag-region></span>
+
+      <div class="account-area">
+        <!-- 已登录：圆形头像，点击展开账号菜单（收藏夹 / 退出登录） -->
+        <button id="avatarBtn" class="avatar-btn hidden" title="账号菜单" aria-label="账号菜单">
+          <img id="avatarImg" class="avatar-img" alt="头像">
+          <span id="avatarFallback" class="avatar-fallback" hidden>U</span>
+        </button>
+        <button id="loginBtn" class="login-btn" type="button">登录</button>
+        <!-- 头像右侧的更多按钮：软件自带功能（收藏列表等） -->
+        <button id="moreBtn" class="more-btn" title="更多" aria-label="更多">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <circle cx="5" cy="12" r="1.9"></circle>
+            <circle cx="12" cy="12" r="1.9"></circle>
+            <circle cx="19" cy="12" r="1.9"></circle>
+          </svg>
+        </button>
+      </div>
+
+      <div class="win-controls">
+        <button id="winMin" class="win-btn" type="button" title="最小化" aria-label="最小化">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+        </button>
+        <button id="winMax" class="win-btn" type="button" title="最大化 / 还原" aria-label="最大化">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="5" y="5" width="14" height="14" rx="2.5"></rect>
+          </svg>
+        </button>
+        <button id="winClose" class="win-btn close" type="button" title="关闭到托盘" aria-label="关闭">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- 第二行：后退 + 一体化搜索框（搜索按钮以图标位于框内最右） -->
+    <div class="searchbox" data-tauri-drag-region>
+      <button id="backBtn" class="nav-btn" type="button" title="后退" aria-label="后退" disabled>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M19 12H6"></path>
+          <polyline points="12 6 6 12 12 18"></polyline>
+        </svg>
+      </button>
+      <div class="search-field">
+        <input id="searchInput" type="text" placeholder="搜索视频，回车搜索" autocomplete="off">
+        <button id="searchClear" class="search-clear" type="button" title="清除" aria-label="清除" hidden>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true">
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+          </svg>
+        </button>
+        <button id="searchBtn" class="search-go" type="button" title="搜索" aria-label="搜索">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="7"></circle>
+            <line x1="16.2" y1="16.2" x2="21" y2="21"></line>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="main">
+    <div id="listContainer" class="list-container"></div>
+  </main>
+
+  <!-- 底部播放器：液态玻璃 + 可收起 -->
+  <footer class="playerbar" id="playerBar">
+    <div class="player-main">
+      <!-- 第一排：视频标题 + UP 主名（小字可点击） —— 评论 / 收藏 / 收起 右对齐 -->
+      <div class="player-title" id="playerTitleWrap">
+        <div class="pt-main" id="ptMain">未在播放</div>
+        <div class="pt-sub hidden" id="ptSub">
+          <span class="pt-up" id="ptUp" hidden></span>
+          <span class="pt-extra" id="ptExtra" hidden></span>
+        </div>
+      </div>
+      <div class="player-headacts">
+        <button id="commentsBtn" class="action-btn" title="评论" aria-label="评论">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
+          </svg>
+        </button>
+        <button id="favBtn" class="action-btn" title="收藏当前播放" aria-label="收藏当前播放">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3.6l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.5 9.8l5.9-.9z"></path>
+          </svg>
+        </button>
+        <button id="playerToggle" class="action-btn" type="button" title="收起播放器" aria-label="收起播放器">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </button>
+      </div>
+
+      <!-- 第二排：进度条 + 右侧时间 -->
+      <div class="player-progress-row">
+        <div class="progress" id="seekBar" title="拖动或点击调整进度">
+          <div class="progress-fill" id="seekFill"></div>
+          <div class="progress-thumb" id="seekThumb"></div>
+        </div>
+        <div class="progress-time" id="seekTime">00:00 / 00:00</div>
+      </div>
+
+      <!-- 第三排：左 播放列表/历史 · 中 上一首/播放/下一首 · 右 倍速/音量 -->
+      <div class="player-side player-side-left">
+        <button id="playlistBtn" class="action-btn" title="播放列表" aria-label="播放列表">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="8" y1="6" x2="21" y2="6"></line>
+            <line x1="8" y1="12" x2="21" y2="12"></line>
+            <line x1="8" y1="18" x2="21" y2="18"></line>
+            <line x1="3" y1="6" x2="3.01" y2="6"></line>
+            <line x1="3" y1="12" x2="3.01" y2="12"></line>
+            <line x1="3" y1="18" x2="3.01" y2="18"></line>
+          </svg>
+        </button>
+        <button id="historyBtn" class="action-btn" title="播放历史" aria-label="播放历史">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+        </button>
+      </div>
+      <div class="player-controls">
+        <button id="prevBtn" title="上一首" aria-label="上一首">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M7 5h2.2v14H7z"></path>
+            <path d="M20 5v14l-9.4-7z"></path>
+          </svg>
+        </button>
+        <button id="playBtn" class="primary" title="播放/暂停" aria-label="播放/暂停">
+          <svg id="playIcon" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M8 5.2v13.6L19.2 12z"></path>
+          </svg>
+        </button>
+        <button id="nextBtn" title="下一首" aria-label="下一首">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M14.8 5H17v14h-2.2z"></path>
+            <path d="M4 5v14l9.4-7z"></path>
+          </svg>
+        </button>
+      </div>
+      <div class="player-side player-side-right">
+        <button id="speedBtn" class="action-btn action-text" title="播放倍速" aria-label="播放倍速">1.0×</button>
+        <button id="volumeBtn" class="action-btn" title="音量" aria-label="音量">
+          <svg id="volumeIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+            <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </footer>
+
+  <!-- 倍速弹层：点击倍速按钮弹出，列出所有档位供选择 -->
+  <div id="speedPop" class="popover speed-pop hidden">
+    <div id="speedOptions" class="speed-options"></div>
+  </div>
+
+  <!-- 音量弹层：点击音量按钮弹出，含滑块与静音开关 -->
+  <div id="volumePop" class="popover hidden">
+    <button id="muteBtn" class="mute-btn" title="静音/取消静音">静音</button>
+    <input id="volumeSlider" type="range" min="0" max="100" step="1" value="100" aria-label="音量">
+    <span id="volumeValue" class="volume-value">100</span>
+  </div>
+
+  <!-- 顶部账号菜单：收藏夹 / 退出登录 -->
+  <div id="accountMenu" class="popover menu-pop hidden">
+    <button class="menu-item" data-act="followings">
+      <span class="mi-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg></span>
+      <span>我的关注</span>
+    </button>
+    <button class="menu-item" data-act="favorites">
+      <span class="mi-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg></span>
+      <span>收藏夹</span>
+    </button>
+    <button class="menu-item danger" data-act="logout">
+      <span class="mi-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg></span>
+      <span>退出登录</span>
+    </button>
+  </div>
+
+  <!-- 顶部更多菜单：软件自带功能 -->
+  <div id="moreMenu" class="popover menu-pop hidden">
+    <button class="menu-item" data-act="collections">
+      <span class="mi-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg></span>
+      <span>收藏列表</span>
+    </button>
+    <div class="menu-sep"></div>
+    <button class="menu-item danger" data-act="quit">
+      <span class="mi-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg></span>
+      <span>退出软件</span>
+    </button>
+  </div>
+
+  <!-- 列表卡片「更多」菜单：内容按卡片动态生成 -->
+  <div id="itemMenu" class="popover menu-pop hidden"></div>
+
+  <div id="loginModal" class="modal hidden">
+    <div class="modal-box">
+      <div class="modal-head">
+        <span id="loginTitle">扫码登录</span>
+        <button id="closeLogin" class="close-btn">×</button>
+      </div>
+      <div id="qrBox" class="qr-box">
+        <div class="qr-hint">加载中…</div>
+      </div>
+      <div id="loginStatus" class="login-status">请使用 B 站 App 扫码</div>
+    </div>
+  </div>
+
+  <!-- 播放列表 / 播放历史 / 账号收藏夹：固定尺寸弹层 -->
+  <div id="panelModal" class="modal hidden">
+    <div class="modal-box sheet-box">
+      <div class="modal-head">
+        <div class="head-title-wrap">
+          <span id="panelTitle">播放列表</span>
+          <span id="panelCount" class="head-count" hidden></span>
+        </div>
+        <button id="savePlaylistBtn" class="head-icon-btn" title="保存为收藏列表" aria-label="保存为收藏列表" hidden>
+          <!-- 与右侧「清空」图标保持同一视觉尺寸：外框控制在 x 3~21 / y 4~20（15px, stroke 2） -->
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M20 18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4.5l2 2.5H18a2 2 0 0 1 2 2z"></path>
+            <line x1="12" y1="11" x2="12" y2="15.5"></line>
+            <line x1="9.5" y1="13.25" x2="14.5" y2="13.25"></line>
+          </svg>
+        </button>
+        <button id="clearPanelBtn" class="head-icon-btn" title="清空" aria-label="清空" hidden></button>
+        <button id="closePanel" class="close-btn" title="关闭" aria-label="关闭">×</button>
+      </div>
+      <div id="panelSub" class="panel-subhead" hidden>来自账号收藏</div>
+      <div id="panelBody" class="panel-body"></div>
+    </div>
+  </div>
+
+  <!-- 评论：固定尺寸弹层 -->
+  <div id="commentsModal" class="modal hidden">
+    <div class="modal-box sheet-box">
+      <div class="modal-head">
+        <span id="commentsTitle">评论</span>
+        <button id="closeComments" class="close-btn">×</button>
+      </div>
+      <div id="commentsBody" class="panel-body"></div>
+    </div>
+  </div>
+
+  <!-- 软件自带收藏列表（歌单）：目录页 / 内容页两级 -->
+  <div id="collectionsModal" class="modal hidden">
+    <div class="modal-box sheet-box collections-box">
+      <div class="modal-head">
+        <div class="head-title-wrap">
+          <span id="collectionsTitle">收藏列表</span>
+          <span id="collectionsCount" class="head-count" hidden></span>
+        </div>
+        <button id="collectionsBackBtn" class="head-icon-btn" title="返回列表" aria-label="返回列表" hidden>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M19 12H5"></path><path d="M12 19l-7-7 7-7"></path>
+          </svg>
+        </button>
+        <button id="collectionsAddBtn" class="head-icon-btn" title="新建列表" aria-label="新建列表">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+            <line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+        </button>
+        <button id="collectionsImportBtn" class="head-icon-btn" title="导入收藏列表" aria-label="导入收藏列表">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 8 12 3 17 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line>
+          </svg>
+        </button>
+        <button id="collectionsExportBtn" class="head-icon-btn" title="导出收藏列表" aria-label="导出收藏列表">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="17 12 12 17 7 12"></polyline><line x1="12" y1="17" x2="12" y2="3"></line>
+          </svg>
+        </button>
+        <button id="closeCollections" class="close-btn" title="关闭" aria-label="关闭">×</button>
+      </div>
+      <div id="collectionsBody" class="panel-body"></div>
+    </div>
+  </div>
+
+  <!-- 合集 / 列表内容：右侧滑出弹窗（播放全部 / 追加到播放列表 / 更多[收藏·批量操作]） -->
+  <div id="collModal" class="modal hidden">
+    <div class="modal-box sheet-box coll-modal-box">
+      <div class="modal-head">
+        <div class="head-title-wrap">
+          <span id="collTitle">合集</span>
+          <span id="collCount" class="head-count" hidden></span>
+        </div>
+        <button id="collPlayAllBtn" class="head-icon-btn coll-tool" title="播放全部" aria-label="播放全部">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M10 8.6l6 3.4-6 3.4z" fill="currentColor" stroke="none"/></svg>
+        </button>
+        <button id="collQueueBtn" class="head-icon-btn coll-tool" title="追加到播放列表" aria-label="追加到播放列表">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 6h11"/><path d="M3 11h11"/><path d="M3 16h6"/><path d="M17 13v7"/><path d="M13.5 16.5h7"/></svg>
+        </button>
+        <button id="collMoreBtn" class="head-icon-btn coll-tool" title="更多" aria-label="更多">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="19" cy="12" r="1.9"/></svg>
+        </button>
+        <!-- 批量激活时显示的「批量」开关（其余工具按钮隐藏） -->
+        <button id="collBatchBtn" class="head-icon-btn coll-tool" title="退出批量操作" aria-label="退出批量操作" hidden>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="9" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="9" y1="18" x2="21" y2="18"/><polyline points="3 6 4 7 6 5"/><line x1="4" y1="12" x2="6" y2="12"/><line x1="4" y1="18" x2="6" y2="18"/></svg>
+        </button>
+        <button id="closeColl" class="close-btn" title="关闭" aria-label="关闭">×</button>
+      </div>
+      <!-- 批量操作栏：固定在页头（不随内容滚动），全部为图标 -->
+      <div id="collBatchBar" class="batch-bar hidden">
+        <button id="collSelectAll" class="batch-btn" type="button" title="全选 / 取消全选" aria-label="全选">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="9" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="9" y1="18" x2="21" y2="18"/><polyline points="3 6 4 7 6 5"/><line x1="4" y1="12" x2="6" y2="12"/><line x1="4" y1="18" x2="6" y2="18"/></svg>
+        </button>
+        <span id="collSelCount" class="batch-count">已选 0 项</span>
+        <div class="batch-actions">
+          <button id="collBatchPlay" class="batch-btn" type="button" title="播放" aria-label="播放">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.2v13.6L19.2 12z"/></svg>
+          </button>
+          <button id="collBatchQueue" class="batch-btn" type="button" title="追加到播放列表" aria-label="追加到播放列表">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 6h11"/><path d="M3 11h11"/><path d="M3 16h6"/><path d="M17 13v7"/><path d="M13.5 16.5h7"/></svg>
+          </button>
+          <button id="collBatchFav" class="batch-btn" type="button" title="收藏" aria-label="收藏">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.6l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.5 9.8l5.9-.9z"/></svg>
+          </button>
+        </div>
+      </div>
+      <div id="collBody" class="panel-body"></div>
+    </div>
+  </div>
+
+  <!-- 合集弹窗头部「更多」菜单：收藏 / 批量操作 -->
+  <div id="collMoreMenu" class="popover menu-pop hidden">
+    <button class="menu-item" data-act="fav">
+      <span class="mi-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.6l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.5 9.8l5.9-.9z"/></svg></span>
+      <span>收藏</span>
+    </button>
+    <button class="menu-item" data-act="batch">
+      <span class="mi-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="9" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="9" y1="18" x2="21" y2="18"/><polyline points="3 6 4 7 6 5"/><line x1="4" y1="12" x2="6" y2="12"/><line x1="4" y1="18" x2="6" y2="18"/></svg></span>
+      <span>批量操作</span>
+    </button>
+  </div>
+
+  <!-- 收藏到…：选择已有列表，顶部可新建列表 -->
+  <div id="favPickModal" class="modal hidden">
+    <div class="modal-box pick-box">
+      <div class="modal-head">
+        <span>收藏到</span>
+        <button id="closeFavPick" class="close-btn">×</button>
+      </div>
+      <button id="favPickNewRow" class="pick-new-row" type="button">
+        <span class="mi-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg></span>
+        <span>创建新列表</span>
+      </button>
+      <div id="favPickBody" class="pick-body"></div>
+    </div>
+  </div>
+
+  <!-- 通用确认弹层：导入方式（覆盖 / 追加）、删除确认等 -->
+  <div id="confirmModal" class="modal hidden">
+    <div class="modal-box confirm-box">
+      <div class="confirm-title" id="confirmTitle">确认</div>
+      <div class="confirm-text" id="confirmText"></div>
+      <div class="confirm-actions" id="confirmActions"></div>
+    </div>
+  </div>
+
+  <input id="importFile" type="file" accept=".json,application/json" hidden>
+
+  <script src="/desktop-bridge.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

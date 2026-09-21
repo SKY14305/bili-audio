@@ -1,0 +1,27 @@
+{
+  "url": "http://127.0.0.1:37211/",
+  "serve": { "dir": "../frontend", "port": 37211 },
+  "viewport": [420, 780],
+  "freeze": true,
+  "setup": "document.getElementById('collModal').classList.add('coll-batching'); document.getElementById('collBatchBar').classList.remove('hidden'); document.getElementById('collModal').classList.remove('hidden'); document.getElementById('panelModal').classList.add('follow-sheet'); document.getElementById('panelModal').classList.remove('hidden');",
+  "settle": 400,
+  "assert": [
+    { "name": "合集弹窗 尺寸 325x540", "sel": "#collModal .modal-box", "rect": { "width": 325, "height": 540 }, "tol": 0.6 },
+    { "name": "合集弹窗 右角直角 / 左角圆角", "sel": "#collModal .modal-box", "style": { "borderRadius": "14px 0px 0px 14px" } },
+    { "name": "合集弹窗 下移 46px 后 top=105", "sel": "#collModal .modal-box", "rect": { "top": 105 }, "tol": 1 },
+    { "name": "合集弹窗 偏移走 relative 而非 transform", "sel": "#collModal .modal-box", "style": { "position": "relative", "top": "46px" } },
+    { "name": "关注弹窗 左角直角 / 右角圆角", "sel": "#panelModal.follow-sheet .modal-box", "style": { "borderRadius": "0px 14px 14px 0px" } },
+    { "name": "关注弹窗 下移 46px 后 top=105", "sel": "#panelModal.follow-sheet .modal-box", "rect": { "top": 105 }, "tol": 1 },
+    { "name": "关注弹窗 左贴边 left=0", "sel": "#panelModal.follow-sheet .modal-box", "rect": { "left": 0 }, "tol": 1 },
+    { "name": "批量栏 全选按钮左移 6px", "sel": "#collSelectAll", "style": { "marginLeft": "-6px" } },
+    { "name": "批量栏 已选计数左移 10px", "sel": "#collSelCount", "style": { "marginLeft": "-10px" } },
+    { "name": "批量栏 已选计数上移 3px", "sel": "#collSelCount", "style": { "position": "relative", "top": "-3px" } },
+    { "name": "批量态 class 生效", "sel": "#collModal", "class": "coll-batching" },
+    { "name": "批量栏可见", "sel": "#collBatchBar", "hidden": false },
+    { "name": "批量栏文案", "sel": "#collSelCount", "text": "已选 0 项" },
+    { "name": "批量栏按钮 4 个", "sel": "#collBatchBar .batch-btn", "count": 4 },
+    { "name": "播放器收藏按钮存在", "sel": "#favBtn", "exists": true },
+    { "name": "播放器拖拽区存在", "sel": "[data-tauri-drag-region]", "exists": true },
+    { "name": "主题变量 --player-h 与播放条实际高度一致", "expr": "(function(){var b=document.getElementById('playerBar');var v=getComputedStyle(document.documentElement).getPropertyValue('--player-h').trim();return b? v===b.offsetHeight+'px':v;})()", "eq": true }
+  ]
+}
