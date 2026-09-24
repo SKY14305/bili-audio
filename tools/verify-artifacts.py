@@ -30,6 +30,16 @@ FRONTEND_MARKERS = [
     "entryKey",                 # 统一去重键
     "已在播放列表中",
     "已调整到下一首播放",
+    "ensureMidsThenRepaint",    # 缺 mid 的条目补齐 UP 主 id 后重绘
+    "entryMid",                 # 条目缺 mid 时用 owner.mid 兜底（否则 UP 主名点不动）
+    "probeAudioFailure",        # 播放失败时把后端记录的失败原因带出来
+    "更换节点重试",              # 播放中断时丢掉旧地址、换一批新节点
+    "音频区间超出文件范围",       # 越界 Range 回 416，而不是伪装成「所有节点不可用」
+    "isChargedItem",            # 充电标识：条目自带 charged 优先
+    "paintChargeBadges",        # 充电角标刷新（不碰多P卡片条）
+    "loadChargesForList",       # 播放列表 / 历史也刷充电角标
+    "ensureInfoForList",        # 只补分P信息、不画卡片条
+    "aria-pressed",             # 静音按钮改为状态切换（文案恒定，宽度不跳）
 ]
 
 failures = []

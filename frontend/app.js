@@ -604,6 +604,9 @@ function closeActiveSheets() {
   if (panelVisible()) closePanel();
   if (commentsVisible()) closeComments();
   if (collState) closeCollModal();
+  // 收藏列表（collectionsModal）与上面几个同属「顶层弹层」，
+  // 漏掉它就会出现「点了 UP 主名、主页已切过去、收藏列表还挡在上面」。
+  if (sheetOpen($('collectionsModal'))) closeCollections();
 }
 
 /**
@@ -620,14 +623,25 @@ function openUpFromEntry(mid, name) {
   openUp(m, name);
 }
 
+/**
+ * 条目缺 mid 时用「分P信息」里带的 UP 主 id 兜底。
+ * /api/pages 会返回 owner.mid（权威值）；播放列表 / 收藏里的老条目常常只有
+ * bvid + author，直接拿 it.mid 判空就会以为「没有 UP 主 ID」。
+ */
+function entryMid(mid, bvid) {
+  if (mid !== null && mid !== undefined && mid !== '') return mid;
+  const info = bvid ? pageInfo.get(bvid) : null;
+  return (info && info.mid) || null;
+}
+
 /** 构建一个可点击跳转 UP 主页的作者名；没有 mid 时点击给出提示 */
-function makeAuthor(name, mid) {
+function makeAuthor(name, mid, bvid) {
   if (!name) return null;
   const span = el('span', 'item-author', name);
   span.title = '查看 UP 主主页';
   span.addEventListener('click', (e) => {
     e.stopPropagation();
-    openUpFromEntry(mid, name);
+    openUpFromEntry(entryMid(mid, bvid), name);
   });
   return span;
 }
@@ -753,20 +767,66 @@ async function ensurePages(bvids) {
   return changed;
 }
 
-/** 列表渲染后补齐分 P 卡片条（后台拉取，不阻塞渲染） */
-async function loadPartsForList(container, items) {
+/**
+ * 列表渲染后补齐缺失的 UP 主 mid。
+ *
+ * 播放列表 / 收藏里的老条目常常只有 bvid + author，`mid` 为 null ——
+ * 此时作者名点了只提示「暂未获取到该 UP 主的 ID」。这里借 /api/pages
+ * （内部就是 /x/web-interface/view，返回 owner.mid）批量补一次，
+ * 补到之后重绘，作者名即可点击。
+ * @param {Array} items 当前列表
+ * @param {Function} repaint 补齐后重绘该列表
+ */
+async function ensureMidsThenRepaint(items, repaint) {
+  const need = (items || [])
+    .filter((it) => it && it.bvid && (it.mid === null || it.mid === undefined || it.mid === ''))
+    .map((it) => it.bvid)
+    .filter((b) => {
+      const info = pageInfo.get(b);
+      return !info || !info.mid;
+    })
+    .slice(0, 30);
+  if (!need.length) return;
+  const changed = await ensurePages(need);
+  if (changed && typeof repaint === 'function') repaint();
+}
+
+/** 确保列表条目的分P信息已在缓存里（不画卡片条）。返回本次是否拉到了新数据。 */
+async function ensureInfoForList(items) {
   const bvids = (items || [])
     .map((it) => it && it.bvid)
     .filter(Boolean)
     .slice(0, 24);
-  if (!bvids.length) return;
+  if (!bvids.length) return false;
   const missing = bvids.filter((b) => !pageInfo.has(b));
-  if (!missing.length) {
-    paintPartStrips(container);
-    return;
-  }
-  await ensurePages(missing);
-  if (container.isConnected) paintPartStrips(container);
+  if (!missing.length) return false;
+  return await ensurePages(missing);
+}
+
+/** 列表渲染后补齐分 P 卡片条（后台拉取，不阻塞渲染） */
+async function loadPartsForList(container, items) {
+  const changed = await ensureInfoForList(items);
+  // 等网络的那条路径回来后容器可能已被替换掉，此时不值得再画
+  if (changed && container && !container.isConnected) return;
+  paintPartStrips(container);
+}
+
+/** 刷新容器内所有卡片的充电角标（不碰多 P 卡片条） */
+function paintChargeBadges(container) {
+  if (!container) return;
+  container.querySelectorAll('.item[data-bvid]').forEach((li) => {
+    if (li._item) paintChargedBadge(li, li._item);
+  });
+}
+
+/**
+ * 列表渲染后补一次分P信息并刷充电角标。
+ * 供「不显示多 P 横滑卡片条」的列表用（播放列表 / 历史）：它们同样要显示充电标识，
+ * 但不能因此凭空长出一条卡片条来。
+ */
+async function loadChargesForList(container, items) {
+  await ensureInfoForList(items);
+  paintChargeBadges(container);
 }
 
 /** 把所有卡片的卡片条刷新一遍 */
@@ -1003,10 +1063,20 @@ function renderPartStrip(li, it) {
   syncPartBar(wrap, strip);
 }
 
-/** 充电视频：卡片右上角加角标（hover 时让位给操作组） */
+/** 是否充电专属：条目自带 charged（队列/收藏里存了）优先，否则查已缓存的分P信息 */
+function isChargedItem(it) {
+  if (!it) return false;
+  if (it.charged) return true;
+  const info = it.bvid ? pageInfo.get(it.bvid) : null;
+  return !!(info && info.charged);
+}
+
+/**
+ * 充电视频：卡片右上角加「充电」角标。
+ * hover 时**保留** —— 操作组在卡片右侧垂直居中，与右上角的角标并不重叠。
+ */
 function paintChargedBadge(li, it) {
-  const info = pageInfo.get(it.bvid);
-  const charged = !!(info && info.charged);
+  const charged = isChargedItem(it);
   const old = li.querySelector(':scope > .badge-charge');
   if (!charged) {
     if (old) old.remove();
@@ -1118,7 +1188,7 @@ function buildItem(it, onPlay, showTime, listItems, listIndex, extraMenu, opts) 
   titleEl.addEventListener('click', onPlay);
 
   const meta = el('div', 'item-meta');
-  const author = makeAuthor(it.author, it.mid);
+  const author = makeAuthor(it.author, it.mid, it.bvid);
   if (author) meta.appendChild(author);
   if (it.duration) meta.appendChild(el('span', null, fmtItemDur(it.duration)));
   if (it.play != null) meta.appendChild(el('span', null, fmtPlay(it.play) + ' 播放'));
@@ -2320,7 +2390,7 @@ function buildPlaylistItem(it, i) {
   titleEl.addEventListener('click', () => playQueueAt(i));
 
   const meta = el('div', 'item-meta');
-  const author = makeAuthor(it.author, it.mid);
+  const author = makeAuthor(it.author, it.mid, it.bvid);
   if (author) meta.appendChild(author);
   if (it.duration) meta.appendChild(el('span', null, fmtItemDur(it.duration)));
 
@@ -2378,6 +2448,12 @@ function renderPlaylist(container) {
     } catch (e) {}
   }
   markPlaying();
+  // 充电专属标识：队列条目自带 charged，直接刷一遍即可
+  loadChargesForList(container, queue);
+  // 老条目缺 mid 时后台补一次，补到后重绘，作者名才点得动
+  ensureMidsThenRepaint(queue, () => {
+    if (panelVisible() && currentPanel === 'playlist') renderPanelBody();
+  });
 }
 
 async function playQueueAt(i) {
@@ -2591,6 +2667,8 @@ function renderHistory(container, items) {
   });
   container.appendChild(ul);
   paintListNumbers(container);
+  // 历史记录本身不存 charged，靠分P信息补出来才能显示充电标识
+  loadChargesForList(container, arr);
 }
 
 // ---------------------------------------------------------------------------
@@ -2816,6 +2894,7 @@ function renderCollectionsDetail(container, list) {
   });
   container.appendChild(ul);
   loadPartsForList(container, list.items);
+  ensureMidsThenRepaint(list.items, () => renderCollectionsBody());
 }
 
 async function createCollection() {
@@ -3165,6 +3244,9 @@ function renderFavItems(container) {
   }
   loadPartsForList(container, favItems);
   paintListNumbers(container);
+  ensureMidsThenRepaint(favItems, () => {
+    if (currentPanel === 'favlist') renderPanelBody();
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -3245,11 +3327,22 @@ function renderFollowings(container) {
 // ---------------------------------------------------------------------------
 // 播放
 // ---------------------------------------------------------------------------
-function audioUrl(entry) {
-  return (
+/**
+ * 音频流地址。
+ * @param {object} entry 队列条目
+ * @param {object} [opts] refresh=true 让后端丢掉播放地址缓存重新解析。
+ *        播放中断 / 卡死重载时必须带 —— 否则 20 分钟缓存会让每次重试都撞在
+ *        同一批坏节点上，表现就是「重试多少遍都一样」。
+ *        bust=true 追加时间戳，顺带绕开 WebView 自身的 HTTP 缓存。
+ */
+function audioUrl(entry, opts) {
+  const o = opts || {};
+  let u =
     '/api/audio?bvid=' + encodeURIComponent(entry.bvid) +
-    '&cid=' + encodeURIComponent(entry.cid)
-  );
+    '&cid=' + encodeURIComponent(entry.cid);
+  if (o.refresh) u += '&refresh=1';
+  if (o.bust) u += '&_r=' + Date.now();
+  return u;
 }
 
 /** 把一个视频的分 P 展开成若干队列项（part=分P名，main=视频总名，供列表/播放器分行显示） */
@@ -3551,8 +3644,12 @@ function applyVolume() {
   if (label) label.textContent = String(Math.round(volumeValue * 100));
   const muteBtn = $('muteBtn');
   if (muteBtn) {
-    muteBtn.textContent = isMuted ? '取消静音' : '静音';
-    muteBtn.classList.toggle('on', isMuted);
+    // 文案固定为「静音」，只用激活态表达当前是否静音。
+    // 之前会切成「取消静音」，四个字把音量弹层撑变形 —— 宽度必须恒定。
+    const mutedNow = isMuted || volumeValue === 0;
+    muteBtn.classList.toggle('on', mutedNow);
+    muteBtn.setAttribute('aria-pressed', mutedNow ? 'true' : 'false');
+    muteBtn.title = mutedNow ? '取消静音' : '静音';
   }
   const vb = $('volumeBtn');
   if (vb) vb.title = isMuted ? '已静音（点击调节）' : '音量 ' + Math.round(volumeValue * 100) + '%';
@@ -3961,17 +4058,36 @@ async function handleAudioError() {
       }
       return;
     }
-    // 2. 地址有效 → 自动重试一次
+    // 2. 地址有效 → 丢掉旧地址、换一批节点重试一次
     if (retryCount < 1) {
       retryCount += 1;
-      toast('播放中断，正在重试…');
-      audio.src = audioUrl(entry);
+      toast('播放中断，正在更换节点重试…');
+      audio.src = audioUrl(entry, { refresh: true });
       audio.play().catch(() => {});
       return;
     }
-    toast('播放失败，请稍后重试');
+    // 3. 仍失败：向音频端点做一次 2 字节探测，把后端记录的失败原因带出来
+    const why = await probeAudioFailure(entry);
+    toast(why ? '播放失败：' + why.slice(0, 48) : '播放失败，请稍后重试');
   } catch (e) {
     toast('播放出错: ' + ((e && e.message) || e));
+  }
+}
+
+/**
+ * 用 2 字节 Range 请求探一次音频端点，只为取回后端的失败原因
+ * （完整原因同时写在 data/app.log，这里只做人类可读的短提示）。
+ */
+async function probeAudioFailure(entry) {
+  try {
+    const r = await fetch(audioUrl(entry, { refresh: true }), {
+      headers: { Range: 'bytes=0-1' },
+    });
+    if (r.ok) return '';
+    const d = await r.json().catch(() => null);
+    return (d && (d.detail || d.message)) || '';
+  } catch (e) {
+    return '';
   }
 }
 
@@ -4002,8 +4118,9 @@ function reloadCurrentSource() {
   if (!entry || !entry.cid) return;
   const pos = lastPos > 0 ? lastPos : audio.currentTime || 0;
   pendingSeek = pos;
-  // 加时间戳参数，绕过浏览器缓存，强制重新拉取
-  audio.src = audioUrl(entry) + '&_r=' + Date.now();
+  // 卡住的根因多半是当前节点在拖延：refresh 让后端换一批新地址，
+  // bust 再绕过浏览器缓存，双重确保这次重载真的换了源
+  audio.src = audioUrl(entry, { refresh: true, bust: true });
   audio.load();
   audio.play().catch(() => {});
   lastTick = Date.now();

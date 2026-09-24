@@ -469,6 +469,36 @@ async fn api_pages(
 // ---------------------------------------------------------------------------
 // b-3. 评论
 // ---------------------------------------------------------------------------
+/// 一条评论节点 → 前端结构；`with_children` 时带出最多 3 条楼中楼。
+///
+/// ⚠ 楼中楼必须和主楼映射**同一批字段**，尤其是 `mid`。
+/// 曾经楼中楼只映射了 uname/message/like，前端拿 `s.mid === undefined`，
+/// 于是「回复里的用户名」点了只提示「暂未获取到该 UP 主的 ID」，而主楼却能进主页。
+fn map_reply_node(c: &serde_json::Value, with_children: bool) -> serde_json::Value {
+    let mut out = json!({
+        "rpid": c.get("rpid").cloned().unwrap_or(json!(null)),
+        "mid": c.get("mid").cloned().unwrap_or(json!(null)),
+        "uname": c.get("member").and_then(|m| m.get("uname")).cloned().unwrap_or(json!("未知用户")),
+        "message": c.get("content").and_then(|cc| cc.get("message")).cloned().unwrap_or(json!("")),
+        "like": c.get("like").cloned().unwrap_or(json!(0)),
+        "time": c.get("ctime").cloned().unwrap_or(json!(0)),
+    });
+    if with_children {
+        let subs: Vec<serde_json::Value> = c
+            .get("replies")
+            .and_then(|v| v.as_array())
+            .map(|subs| {
+                subs.iter()
+                    .take(3)
+                    .map(|sub| map_reply_node(sub, false))
+                    .collect()
+            })
+            .unwrap_or_default();
+        out["replies"] = json!(subs);
+    }
+    out
+}
+
 async fn api_comments(
     State(state): State<Arc<AppState>>,
     Query(q): Query<Vec<(String, String)>>,
@@ -528,19 +558,7 @@ async fn api_comments(
         "code": 0,
         "data": {
             "count": data.get("page").and_then(|p| p.get("count")).and_then(|c| c.as_i64()).unwrap_or(replies.len() as i64),
-            "replies": replies.iter().map(|c| json!({
-                "rpid": c.get("rpid").cloned().unwrap_or(json!(null)),
-                "mid": c.get("mid").cloned().unwrap_or(json!(null)),
-                "uname": c.get("member").and_then(|m| m.get("uname")).cloned().unwrap_or(json!("未知用户")),
-                "message": c.get("content").and_then(|cc| cc.get("message")).cloned().unwrap_or(json!("")),
-                "like": c.get("like").cloned().unwrap_or(json!(0)),
-                "time": c.get("ctime").cloned().unwrap_or(json!(0)),
-                "replies": c.get("replies").and_then(|v| v.as_array()).map(|subs| subs.iter().take(3).map(|sub| json!({
-                    "uname": sub.get("member").and_then(|m| m.get("uname")).cloned().unwrap_or(json!("未知用户")),
-                    "message": sub.get("content").and_then(|cc| cc.get("message")).cloned().unwrap_or(json!("")),
-                    "like": sub.get("like").cloned().unwrap_or(json!(0)),
-                })).collect::<Vec<_>>()).unwrap_or_default(),
-            })).collect::<Vec<_>>(),
+            "replies": replies.iter().map(|c| map_reply_node(c, true)).collect::<Vec<_>>(),
         }
     }))
 }
@@ -561,6 +579,9 @@ async fn api_playurl(
             "message": resolved.message,
         }));
     }
+    // 这次是实时解析（不带缓存读），把结果落进缓存：
+    // 前端拿到「地址有效」后紧接着重载音源，用的就是这批新地址。
+    crate::audio::store_resolved(&state, &bvid, &cid, &resolved);
     let data = resolved.resp.and_then(|r| r.get("data").cloned()).unwrap_or(json!({}));
     ok_json(&json!({
         "code": 0,
@@ -583,7 +604,10 @@ async fn api_audio(
 ) -> Response {
     let bvid = qs(&Query(q.clone()), "bvid", "");
     let cid = qs(&Query(q.clone()), "cid", "");
-    let resolved = crate::audio::resolve_audio_cached(&state, &bvid, &cid).await;
+    // refresh=1：丢掉播放地址缓存重新解析。前端在「播放中断」重试时带上，
+    // 否则 20 分钟的缓存会让每次重试都撞在同一批坏节点上。
+    let refresh = qs(&Query(q.clone()), "refresh", "") == "1";
+    let resolved = crate::audio::resolve_audio_cached(&state, &bvid, &cid, refresh).await;
     if !resolved.ok {
         return json_response(
             StatusCode::BAD_GATEWAY,
@@ -594,7 +618,7 @@ async fn api_audio(
         );
     }
 
-    // 按带宽降序，逐个 failover
+    // 按带宽降序挑音质；同一档位内部的候选顺序已由 audio.rs 排好（常规 CDN 优先、PCDN 兜底）
     let mut tracks = resolved.audio.clone();
     tracks.sort_by(|a, b| {
         let ba = a.get("bandwidth").and_then(|v| v.as_f64()).unwrap_or(0.0);
@@ -606,6 +630,8 @@ async fn api_audio(
         .get(axum::http::header::RANGE)
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string());
+
+    let mut failures: Vec<String> = Vec::new();
 
     for track in tracks {
         let urls: Vec<String> = track
@@ -619,14 +645,32 @@ async fn api_audio(
                     .map(|s| vec![s.to_string()])
                     .unwrap_or_default()
             });
-        if let Some(resp) = crate::audio::stream_audio(&state, &urls, range.as_deref()).await {
-            return resp;
+        match crate::audio::stream_audio(&state, &urls, range.as_deref()).await {
+            crate::audio::StreamOutcome::Ready(resp) => return resp,
+            crate::audio::StreamOutcome::RangeNotSatisfiable(why) => {
+                // 区间越界是合法语义：回 416 让媒体引擎自己收敛。
+                // 旧实现把它当「节点不可用」而返回 502 + JSON，会让播放直接报错。
+                bili::log(&state.app, format!("音频区间越界 bvid={} cid={} {}", bvid, cid, why));
+                return json_response(
+                    StatusCode::RANGE_NOT_SATISFIABLE,
+                    &json!({"code": -1, "message": "请求的音频区间超出文件范围"}),
+                );
+            }
+            crate::audio::StreamOutcome::Failed(errs) => failures.extend(errs),
         }
     }
 
+    // 全军覆没：清掉缓存，下次重试才会重新要一批节点；
+    // 逐地址的失败原因写进 data/app.log，便于定位是哪个域名在拖后腿。
+    crate::audio::invalidate_playurl_cache(&state, &bvid, &cid);
+    let detail = failures.join("; ");
+    bili::log(
+        &state.app,
+        format!("音频节点全部失败 bvid={} cid={} -> {}", bvid, cid, detail),
+    );
     json_response(
         StatusCode::BAD_GATEWAY,
-        &json!({"code": -1, "message": "所有音频节点均不可用"}),
+        &json!({"code": -1, "message": "所有音频节点均不可用", "detail": detail}),
     )
 }
 
@@ -1629,4 +1673,77 @@ async fn api_win_drag(State(state): State<Arc<AppState>>) -> Response {
         })
         .is_ok();
     ok_json(&json!({ "ok": ok }))
+}
+
+// ---------------------------------------------------------------------------
+// 单元测试
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// 楼中楼必须带 mid —— 漏了它，回复里的用户名点不进 UP 主页（主楼却可以）。
+    #[test]
+    fn reply_node_keeps_mid() {
+        let sub = json!({
+            "rpid": 11,
+            "mid": 987654,
+            "member": { "uname": "甲" },
+            "content": { "message": "同意" },
+            "like": 2,
+            "ctime": 1700000000
+        });
+        let m = map_reply_node(&sub, false);
+        assert_eq!(m["mid"], json!(987654));
+        assert_eq!(m["uname"], json!("甲"));
+        assert_eq!(m["message"], json!("同意"));
+        assert_eq!(m["like"], json!(2));
+        assert_eq!(m["time"], json!(1700000000));
+    }
+
+    #[test]
+    fn main_comment_carries_children_with_mid() {
+        let c = json!({
+            "rpid": 1,
+            "mid": 100,
+            "member": { "uname": "主楼" },
+            "content": { "message": "楼主" },
+            "replies": [
+                { "rpid": 11, "mid": 111, "member": { "uname": "A" }, "content": { "message": "a" } },
+                { "rpid": 12, "mid": 112, "member": { "uname": "B" }, "content": { "message": "b" } }
+            ]
+        });
+        let m = map_reply_node(&c, true);
+        assert_eq!(m["mid"], json!(100));
+        let subs = m["replies"].as_array().unwrap();
+        assert_eq!(subs.len(), 2);
+        assert_eq!(subs[0]["mid"], json!(111), "楼中楼必须带 mid");
+        assert_eq!(subs[1]["mid"], json!(112), "楼中楼必须带 mid");
+        assert_eq!(subs[1]["uname"], json!("B"));
+        // 楼中楼不再往下递归
+        assert!(subs[0].get("replies").is_none());
+    }
+
+    #[test]
+    fn children_limited_to_three() {
+        let subs: Vec<serde_json::Value> = (0..5)
+            .map(|i| json!({ "rpid": 20 + i, "mid": 200 + i, "member": { "uname": "u" }, "content": { "message": "m" } }))
+            .collect();
+        let c = json!({
+            "rpid": 1, "mid": 1, "member": { "uname": "主" }, "content": { "message": "楼" },
+            "replies": subs
+        });
+        assert_eq!(map_reply_node(&c, true)["replies"].as_array().unwrap().len(), 3);
+    }
+
+    /// 字段缺失不能 panic（B 站对已注销账号常省略 member）——按占位值降级
+    #[test]
+    fn missing_fields_degrade_gracefully() {
+        let m = map_reply_node(&json!({ "rpid": 7 }), false);
+        assert_eq!(m["mid"], json!(null));
+        assert_eq!(m["uname"], json!("未知用户"));
+        assert_eq!(m["message"], json!(""));
+        assert_eq!(m["like"], json!(0));
+    }
 }

@@ -41,11 +41,15 @@ npx tauri build                # 出 EXE + NSIS 安装包（增量约 2 分钟�
 ```bash
 NODE=node; SK=~/.workbuddy/skills/ui-assert-verify/scripts/verify-ui.js
 $NODE "$SK" tools/ui-spec.json            # 版式 17 条
-$NODE "$SK" tools/ui-spec-behavior.json   # 行为 21 条（队列语义 / 弹层互斥）
+$NODE "$SK" tools/ui-spec-behavior.json   # 行为 37 条（队列语义 / 弹层互斥 / mid 兜底 / 角标 / 静音态）
+python tools/verify-audio.py              # 音频链路 22 条（需先构建 dev-server 版，见 docs）
+python tools/verify-comments.py           # 评论链路：楼中楼也要带 UP 主 mid（同上）
 python tools/verify-artifacts.py          # 产物本体：内嵌前端 / 图标 / 产品名
+python tools/verify-no-port.py            # 正式产物不监听任何端口（会短暂起一次 GUI）
 ```
 
 两份 spec 分开跑（各自的 setup 会互相踩状态）；`viewport` 必须等于真实窗口尺寸（420×780）。
+两个「打真实接口」的用例需先构建 dev-server 版 EXE，构建与注意事项见 `docs/internals.md`。
 
 ## 目录
 
@@ -56,5 +60,5 @@ bili-audio/
 │   ├── icons/           # 应用图标（brand-logo.svg 为矢量母版）
 │   └── src/             # main / lib / state / bili / audio / store / server
 ├── frontend/            # 纯 HTML/CSS/JS 界面，由 rust-embed 内嵌进 EXE
-└── tools/               # 断言清单 + 产物校验脚本
+└── tools/               # 断言清单 + 产物校验 / 音频链路验证脚本
 ```
