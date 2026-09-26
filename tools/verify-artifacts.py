@@ -40,6 +40,9 @@ FRONTEND_MARKERS = [
     "loadChargesForList",       # 播放列表 / 历史也刷充电角标
     "ensureInfoForList",        # 只补分P信息、不画卡片条
     "aria-pressed",             # 静音按钮改为状态切换（文案恒定，宽度不跳）
+    "resumeSeekTarget",         # 恢复进度只对被恢复的那一条生效（否则会跳过新点的条目）
+    "clampSeekTarget",          # seek 目标越界时回退到从头播
+    "userPickedPlayback",       # 用户已主动点播则不再用旧状态覆盖
 ]
 
 failures = []

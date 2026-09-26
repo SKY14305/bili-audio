@@ -178,7 +178,7 @@ function setPlayerDisplay(entry) {
     upEl.hidden = false;
     upEl.onclick = (e) => {
       e.stopPropagation();
-      openUpFromEntry(entry.mid, author);
+      openUpFromEntry(entryMid(entry.mid, entry.bvid), author);
     };
   } else {
     upEl.hidden = true;
@@ -219,7 +219,9 @@ function favCurrent() {
 }
 
 let resumeTime = 0; // 恢复播放的进度（秒）
+let resumeKey = null; // 上面这个进度属于哪一条（bvid:cid）；换了条目就必须丢弃
 let pendingSeek = 0; // 待 seek 的进度（秒）
+let userPickedPlayback = false; // 用户是否已自己点播过（用于避免恢复旧状态时把它们盖掉）
 let lastSaveTime = 0; // 状态保存节流时间戳
 let retryCount = 0; // 音频 error 自动重试计数
 let stallTimer = null; // 网络卡顿提示定时器
@@ -2458,6 +2460,7 @@ function renderPlaylist(container) {
 
 async function playQueueAt(i) {
   if (i < 0 || i >= queue.length) return;
+  userPickedPlayback = true;
   currentIndex = i;
   await playQueue();
   saveState();
@@ -2579,6 +2582,7 @@ function stopPlayback() {
   } catch (e) {}
   resumeTime = 0;
   pendingSeek = 0;
+  resumeKey = null;
   retryCount = 0;
   resetWatchdog();
   setPlayIcon(false);
@@ -3371,7 +3375,27 @@ function partEntries(it, info) {
  * @param {number} i 下标
  * @param {number} [startPart] 从第几个分 P 开始（点分 P 卡片时用）
  */
+/**
+ * 「恢复上次进度」只属于被恢复的那一条。
+ *
+ * 用户改点别的内容（或按上一首 / 下一首）时必须丢弃：否则新内容会被 seek 到上次的进度，
+ * 一旦该进度超过新内容的时长，播放器会直接落到结尾并触发 ended 自动连播 ——
+ * 表现就是「点了这一条却跳过它、直接播下一首」。这曾是一个只在重开软件后偶发的问题。
+ */
+function resumeSeekTarget(entry) {
+  if (!(resumeTime > 0)) return 0;
+  return resumeKey === entryKey(entry) ? resumeTime : 0;
+}
+
+/** seek 目标超出音频长度时不要照做（会落到结尾并立刻 ended），回退到从头播 */
+function clampSeekTarget(target, duration) {
+  if (!(target > 0)) return 0;
+  if (duration > 0 && target >= duration - 1) return 0;
+  return target;
+}
+
 function playItems(items, i, startPart) {
+  userPickedPlayback = true;
   const it = items[i];
   if (!it) return;
   const info = pageInfo.get(it.bvid);
@@ -3380,7 +3404,7 @@ function playItems(items, i, startPart) {
     cid: x.cid || null,
     title: x.title,
     author: x.author || '',
-    mid: x.mid || null,
+    mid: entryMid(x.mid, x.bvid),
     duration: x.duration,
   }));
 
@@ -3412,6 +3436,7 @@ function playItems(items, i, startPart) {
  * 与点大标题不同 —— 点大标题是把整个搜索/合集列表都排进队列（见 playItems）。
  */
 function playListItemAt(items, i, partIndex) {
+  userPickedPlayback = true;
   const it = items && items[i];
   if (!it) return;
   const info = pageInfo.get(it.bvid);
@@ -3473,6 +3498,8 @@ async function playQueue() {
         entry.aid = aid;
         entry.charged = charged;
         entry.preview = preview;
+        // 顺手把 UP 主 id 写回条目：播放控件上的作者名要靠它才能点开主页
+        entry.mid = entry.mid || v.data.mid || null;
       }
       saveState();
     }
@@ -3486,7 +3513,7 @@ async function playQueue() {
     setPlayerDisplay(entry);
     setPlayIcon(true);
     applyRate();
-    const seekTarget = resumeTime;
+    const seekTarget = resumeSeekTarget(entry);
     resumeTime = 0;
     pendingSeek = seekTarget;
     audio.src = audioUrl(entry);
@@ -3897,6 +3924,8 @@ async function restoreState() {
     applyVolume();
 
     if (!d || !Array.isArray(d.queue) || !d.queue.length) return;
+    // 用户在状态恢复完成前已经自己点播过内容 → 不能用旧状态把它们盖掉
+    if (userPickedPlayback) return;
     queue = d.queue
       .map((it) => ({
         bvid: it.bvid,
@@ -3920,6 +3949,8 @@ async function restoreState() {
         : 0;
     resumeTime = Number(d.currentTime) || 0;
     const entry = queue[currentIndex];
+    // 记下这个进度属于哪一条：之后只有点回同一条才继续用它（否则会跳过新点的那条）
+    resumeKey = entry ? entryKey(entry) : null;
     if (entry) {
       setPlayerDisplay(entry);
       const dur = Number(entry.duration) || 0;
@@ -4488,7 +4519,7 @@ audio.addEventListener('timeupdate', () => {
 audio.addEventListener('loadedmetadata', () => {
   if (pendingSeek > 0) {
     try {
-      audio.currentTime = pendingSeek;
+      audio.currentTime = clampSeekTarget(pendingSeek, audio.duration || 0);
     } catch (e) {}
     pendingSeek = 0;
   }
