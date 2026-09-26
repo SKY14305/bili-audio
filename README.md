@@ -41,7 +41,7 @@ npx tauri build                # 出 EXE + NSIS 安装包（增量约 2 分钟�
 ```bash
 NODE=node; SK=~/.workbuddy/skills/ui-assert-verify/scripts/verify-ui.js
 $NODE "$SK" tools/ui-spec.json            # 版式 17 条
-$NODE "$SK" tools/ui-spec-behavior.json   # 行为 37 条（队列语义 / 弹层互斥 / mid 兜底 / 角标 / 静音态）
+$NODE "$SK" tools/ui-spec-behavior.json   # 行为 50 条（队列语义 / 弹层互斥 / mid 兜底 / 角标 / 静音态 / 计数格式）
 python tools/verify-audio.py              # 音频链路 22 条（需先构建 dev-server 版，见 docs）
 python tools/verify-comments.py           # 评论链路：楼中楼也要带 UP 主 mid（同上）
 python tools/verify-artifacts.py          # 产物本体：内嵌前端 / 图标 / 产品名
