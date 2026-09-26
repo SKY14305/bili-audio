@@ -9,6 +9,12 @@ use crate::state::AppState;
 pub const UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36";
 pub const REFERER: &str = "https://www.bilibili.com";
 
+/// 真实浏览器 UA。
+/// ⚠ 必须显式设置：reqwest 默认会发 `reqwest/0.x`，B 站风控对这个 UA 直接回 **412**，
+/// 或者更隐蔽地「返回 code=0 但数据为空」——表现为「这个 UP 主明明有投稿却显示 0 条」。
+pub const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
+     (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+
 /// WBI 混钥置换表
 const MIXIN_KEY_ENC_TAB: [usize; 64] = [
     46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49, 33, 9, 42, 19, 29,
@@ -140,6 +146,7 @@ pub async fn bili_request(
         .http
         .request(reqwest::Method::from_bytes(method.as_bytes()).map_err(|e| e.to_string())?, url)
         .header("Referer", referer)
+        .header("User-Agent", USER_AGENT)
         .header("Accept", "application/json, text/plain, */*")
         .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8");
 

@@ -1419,10 +1419,11 @@ async function loadUp(view) {
   if (isCurrent(view)) renderNav();
 }
 
-async function loadMoreUpVideos() {
+async function loadMoreUpVideos(isRetry) {
   const view = currentView();
   if (!view || view.kind !== 'up') return;
-  view.data.videosPage += 1;
+  // 重试时沿用同一页码，别把页码推着往前走
+  if (!isRetry) view.data.videosPage += 1;
   const page = view.data.videosPage;
   const mid = view.data.mid;
   const r = await api(
@@ -1431,6 +1432,17 @@ async function loadMoreUpVideos() {
   if (r.code !== 0) return handleError(r);
   const vlist = (r.data && r.data.list && r.data.list.vlist) || [];
   const total = (r.data && r.data.page && r.data.page.count) || 0;
+
+  // 空页且明明还有内容 → 多半是接口侧临时限流（它不报错，只静默给空）。
+  // 自动用同一页码重试一次，仍失败才把决定权交回用户（按钮保留）。
+  if (vlist.length === 0 && !isRetry) {
+    const known = view.data.videosTotal || 0;
+    if (known > 0 && view.data.videos.length < known) {
+      await new Promise((res) => setTimeout(res, 900));
+      if (isCurrent(view)) return loadMoreUpVideos(true);
+      return;
+    }
+  }
   view.data.videos = view.data.videos.concat(
     vlist.map((v) => ({
       bvid: v.bvid,
@@ -1442,11 +1454,14 @@ async function loadMoreUpVideos() {
     }))
   );
   // 深页可能被风控限流或已到末页：接口会给 count=0 / 空列表。
-  // 此时**不能**把总数覆盖成 0（那会让标签显示「0 投稿」），也不要继续翻页。
+  // 此时**不能**把总数覆盖成 0（那会让标签显示「0 投稿」）。
   if (total > 0) view.data.videosTotal = total;
-  view.data.hasMore = vlist.length > 0 && view.data.videos.length < view.data.videosTotal;
-  if (vlist.length === 0 && view.data.videos.length < view.data.videosTotal) {
-    // 明明还有内容却返回空页：多半是接口被限流后静默返回空，给用户一句实话
+  // 「是否还有更多」只看「已加载数 vs 总数」。
+  // ⚠ 空页 ≠ 到底：接口在风控/限流时会静默返回空（code=0 但 count=0、列表空），
+  // 这时必须**保留**「加载更多」按钮 —— 否则用户既没拿到内容、又失去了重试入口。
+  const knownTotal = view.data.videosTotal || 0;
+  view.data.hasMore = knownTotal > 0 ? view.data.videos.length < knownTotal : vlist.length > 0;
+  if (vlist.length === 0 && view.data.hasMore) {
     toast('加载失败，请稍后重试');
   }
   if (isCurrent(view)) renderNav();
@@ -1640,7 +1655,14 @@ function renderUpVideosContent(container, view) {
   container.appendChild(ul);
   if (!q && d.hasMore) {
     const btn = el('button', 'loadmore', '加载更多');
-    btn.onclick = loadMoreUpVideos;
+    // 连点会并发请求、把页码打乱（还会叠加限流），加个闸
+    btn.onclick = () => {
+      if (d.videoLoadingMore) return;
+      d.videoLoadingMore = true;
+      Promise.resolve(loadMoreUpVideos()).finally(() => {
+        d.videoLoadingMore = false;
+      });
+    };
     container.appendChild(btn);
   }
   loadPartsForList(container, items);

@@ -706,6 +706,26 @@ async fn api_space(
     }))
 }
 
+/// 空间投稿接口的参数。
+///
+/// ⚠ 后五个是「页面版参数」，**一个都不能省**：少了它们 B 站不报错，
+/// 只静默返回 `code=0 + count=0 + 空列表`，界面就变成「0 投稿」。
+/// 实测（投稿 25.9 万的 UP）：补齐后立刻从 0 条变成 count=258919 / 20 条。
+/// 参考网页版 space.bilibili.com/<mid>/video 实际发出的请求。
+fn space_videos_params(mid: &str, pn: &str, ps: &str) -> Vec<(&'static str, String)> {
+    vec![
+        ("mid", mid.to_string()),
+        ("pn", pn.to_string()),
+        ("ps", ps.to_string()),
+        ("order", "pubdate".to_string()),
+        ("tid", "0".to_string()),
+        ("keyword", String::new()),
+        ("platform", "web".to_string()),
+        ("web_location", "1550101".to_string()),
+        ("order_avoided", "true".to_string()),
+    ]
+}
+
 async fn api_space_videos(
     State(state): State<Arc<AppState>>,
     Query(q): Query<Vec<(String, String)>>,
@@ -713,17 +733,46 @@ async fn api_space_videos(
     let mid = qs(&Query(q.clone()), "mid", "");
     let pn = qs(&Query(q.clone()), "pn", "1");
     let ps = qs(&Query(q.clone()), "ps", "20");
-    let mut params = vec![
-        ("mid", mid.clone()),
-        ("pn", pn.clone()),
-        ("ps", ps.clone()),
-        ("order", "pubdate".to_string()),
-    ];
+    let mut params = space_videos_params(&mid, &pn, &ps);
     params.extend(dm_fingerprint().iter().map(|(k, v)| (*k, v.to_string())));
-    let r = bili::bili_wbi_request(&state, "/x/space/wbi/arc/search", &params).await;
-    let json_val = match r.ok().and_then(|r| r.json) {
+    // 空间投稿是 B 站风控最重的接口之一：被限流时它**不报错**，
+    // 只返回 code=0 + count=0 + 空列表（伪装成「这个 UP 主没有投稿」）。
+    // 实测对投稿 25.9 万的 UP：补齐参数与 UA 后单次成功率仍只有两三成，
+    // 但连续重试（wts 每次都是新的，签名随之变化）能显著提高成功率。
+    let mut json_val = None;
+    for attempt in 0..3u64 {
+        let r = bili::bili_wbi_request(&state, "/x/space/wbi/arc/search", &params).await;
+        let j = match r.ok().and_then(|r| r.json) {
+            Some(j) => j,
+            None => {
+                return json_response(
+                    StatusCode::BAD_GATEWAY,
+                    &json!({"code": -1, "message": "B 站响应解析失败"}),
+                )
+            }
+        };
+        let code_ok = j.get("code").and_then(|c| c.as_i64()) == Some(0);
+        let empty = j
+            .get("data")
+            .and_then(|d| d.get("list"))
+            .and_then(|l| l.get("vlist"))
+            .and_then(|v| v.as_array())
+            .map(|a| a.is_empty())
+            .unwrap_or(true);
+        json_val = Some(j);
+        if !code_ok || !empty || attempt == 2 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500 * (attempt + 1))).await;
+    }
+    let json_val = match json_val {
         Some(j) => j,
-        None => return json_response(StatusCode::BAD_GATEWAY, &json!({"code": -1, "message": "B 站响应解析失败"})),
+        None => {
+            return json_response(
+                StatusCode::BAD_GATEWAY,
+                &json!({"code": -1, "message": "获取投稿失败"}),
+            )
+        }
     };
     if json_val.get("code").and_then(|c| c.as_i64()) != Some(0) {
         return ok_json(&json!({
@@ -1745,5 +1794,36 @@ mod tests {
         assert_eq!(m["uname"], json!("未知用户"));
         assert_eq!(m["message"], json!(""));
         assert_eq!(m["like"], json!(0));
+    }
+
+    /// 空间投稿缺了页面版参数时，B 站会「静默返回空」而不是报错，
+    /// 界面表现为「点几次加载更多就变成 0 投稿」——这是真实发生过的故障，锁死它。
+    #[test]
+    fn space_videos_params_include_page_versions() {
+        let p = space_videos_params("123", "2", "20");
+        let keys: Vec<&str> = p.iter().map(|(k, _)| *k).collect();
+        for must in [
+            "mid",
+            "pn",
+            "ps",
+            "order",
+            "tid",
+            "keyword",
+            "platform",
+            "web_location",
+            "order_avoided",
+        ] {
+            assert!(keys.contains(&must), "空间投稿参数缺少 {must}");
+        }
+        let get = |k: &str| {
+            p.iter()
+                .find(|(n, _)| *n == k)
+                .map(|(_, v)| v.as_str())
+                .unwrap_or("")
+        };
+        assert_eq!(get("tid"), "0");
+        assert_eq!(get("platform"), "web");
+        assert_eq!(get("web_location"), "1550101");
+        assert_eq!(get("keyword"), "");
     }
 }

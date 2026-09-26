@@ -56,6 +56,6 @@
     { "name": "播放列表/历史/收藏夹等面板计数用 1W+ 格式", "expr": "window.__t.panelCountFmt", "eq": "1W+" },
     { "name": "合集内容计数用 1W+ 格式", "expr": "window.__t.collCountFmt", "eq": "2W+" },
     { "name": "加载更多拿到空页时不清零投稿总数（不再显示 0 投稿）", "expr": "window.__t.totalKept", "eq": 5000 },
-    { "name": "空页之后不再显示「加载更多」", "expr": "window.__t.hasMoreAfterEmpty", "eq": "false" }
+    { "name": "空页后仍保留「加载更多」按钮（否则用户无法重试）", "expr": "window.__t.hasMoreAfterEmpty", "eq": "true" }
   ]
 }

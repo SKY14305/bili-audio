@@ -44,6 +44,8 @@ FRONTEND_MARKERS = [
     "clampSeekTarget",          # seek 目标越界时回退到从头播
     "userPickedPlayback",       # 用户已主动点播则不再用旧状态覆盖
     "fmtCount",                 # 计数标识超万位换 W+（投稿/列表/历史/评论/收藏夹）
+    "videoLoadingMore",         # 加载更多防连点
+    "order_avoided",            # 空间投稿的页面版参数（少一个就静默返回空 → 0 投稿）
 ]
 
 failures = []
