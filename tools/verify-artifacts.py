@@ -43,6 +43,7 @@ FRONTEND_MARKERS = [
     "resumeSeekTarget",         # 恢复进度只对被恢复的那一条生效（否则会跳过新点的条目）
     "clampSeekTarget",          # seek 目标越界时回退到从头播
     "userPickedPlayback",       # 用户已主动点播则不再用旧状态覆盖
+    "fmtCount",                 # 计数标识超万位换 W+（投稿/列表/历史/评论/收藏夹）
 ]
 
 failures = []

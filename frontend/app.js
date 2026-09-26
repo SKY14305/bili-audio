@@ -655,6 +655,18 @@ function fmtPlay(n) {
   return String(n);
 }
 
+/**
+ * 计数标识（投稿 / 合集 / 列表 / 播放列表 / 历史 / 评论 / 收藏夹）：
+ * 超过 1 万换成「万」为单位并加 +，数字不再无限变长把标题撑变形。
+ * 例：9999 → "9999"，10000 → "1W+"，56789 → "5W+"。
+ */
+function fmtCount(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return String(n == null ? '' : n);
+  if (v >= 10000) return Math.floor(v / 10000) + 'W+';
+  return String(v);
+}
+
 function fmtDur(sec) {
   sec = Math.floor(Number(sec) || 0);
   const h = Math.floor(sec / 3600);
@@ -1429,8 +1441,14 @@ async function loadMoreUpVideos() {
       play: v.play,
     }))
   );
-  view.data.videosTotal = total;
-  view.data.hasMore = view.data.videos.length < total;
+  // 深页可能被风控限流或已到末页：接口会给 count=0 / 空列表。
+  // 此时**不能**把总数覆盖成 0（那会让标签显示「0 投稿」），也不要继续翻页。
+  if (total > 0) view.data.videosTotal = total;
+  view.data.hasMore = vlist.length > 0 && view.data.videos.length < view.data.videosTotal;
+  if (vlist.length === 0 && view.data.videos.length < view.data.videosTotal) {
+    // 明明还有内容却返回空页：多半是接口被限流后静默返回空，给用户一句实话
+    toast('加载失败，请稍后重试');
+  }
   if (isCurrent(view)) renderNav();
 }
 
@@ -1487,7 +1505,7 @@ function makeUpTab(view, tab, label, count) {
   b.type = 'button';
   b.dataset.tab = tab;
   b.appendChild(el('span', 'up-tab-label', label));
-  const c = el('span', 'up-tab-count', String(count == null ? 0 : count));
+  const c = el('span', 'up-tab-count', fmtCount(count == null ? 0 : count));
   c.title = '共 ' + String(count == null ? 0 : count) + ' 个';
   b.appendChild(c);
   b.addEventListener('click', () => {
@@ -1612,7 +1630,7 @@ function renderUpVideosContent(container, view) {
   }
   if (q) {
     container.appendChild(
-      el('div', 'up-result', '匹配 ' + items.length + ' / ' + (d.videosTotal || items.length) + ' 个投稿')
+      el('div', 'up-result', '匹配 ' + fmtCount(items.length) + ' / ' + fmtCount(d.videosTotal || items.length) + ' 个投稿')
     );
   }
   const ul = el('ul', 'list');
@@ -1923,7 +1941,7 @@ function setCollCount(n) {
     c.hidden = true;
     return;
   }
-  c.textContent = String(n);
+  c.textContent = fmtCount(n);
   c.hidden = false;
 }
 
@@ -2011,7 +2029,7 @@ function syncCollBatchBar() {
   const st = collState;
   if (!st) return;
   const label = $('collSelCount');
-  if (label) label.textContent = '已选 ' + st.selected.size + ' 项';
+  if (label) label.textContent = '已选 ' + fmtCount(st.selected.size) + ' 项';
   const all = $('collSelectAll');
   if (all) {
     const allSel = (st.items || []).length > 0 && st.selected.size === st.items.length;
@@ -2321,7 +2339,7 @@ function setPanelCount(n) {
     c.hidden = true;
     return;
   }
-  c.textContent = String(n);
+  c.textContent = fmtCount(n);
   c.hidden = false;
 }
 
@@ -2788,7 +2806,7 @@ function renderCollectionsBody() {
     }
     $('collectionsTitle').textContent = list.name;
     if (cnt) {
-      cnt.textContent = String(list.items.length);
+      cnt.textContent = fmtCount(list.items.length);
       cnt.hidden = false;
     }
     $('collectionsAddBtn').hidden = true;
@@ -2801,7 +2819,7 @@ function renderCollectionsBody() {
   }
   $('collectionsTitle').textContent = '收藏列表';
   if (cnt) {
-    cnt.textContent = String(collections.length);
+    cnt.textContent = fmtCount(collections.length);
     cnt.hidden = false;
   }
   $('collectionsAddBtn').hidden = false;
@@ -3861,14 +3879,14 @@ function buildComment(c) {
   const head = el('div', 'comment-head');
   // 主楼与楼中楼共用同一套点击逻辑：任何一处都能进主页（无 mid 时给提示）
   head.appendChild(makeCommentUser(c.uname, c.mid));
-  if (c.like) head.appendChild(el('span', 'comment-like', '♡ ' + fmtPlay(c.like)));
+  if (c.like) head.appendChild(el('span', 'comment-like', '♡ ' + fmtCount(c.like)));
   box.appendChild(head);
   box.appendChild(el('div', 'comment-text', c.message || ''));
   (c.replies || []).forEach((s) => {
     const sub = el('div', 'comment-sub');
     const sh = el('div', 'comment-head');
     sh.appendChild(makeCommentUser(s.uname, s.mid));
-    if (s.like) sh.appendChild(el('span', 'comment-like', '♡ ' + fmtPlay(s.like)));
+    if (s.like) sh.appendChild(el('span', 'comment-like', '♡ ' + fmtCount(s.like)));
     sub.appendChild(sh);
     sub.appendChild(el('div', 'comment-text', s.message || ''));
     box.appendChild(sub);
