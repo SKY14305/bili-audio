@@ -7,6 +7,10 @@ src-tauri/gen/schemas/
 # 依赖
 node_modules/
 
+# Python 字节码（py_compile / import 的副产物，曾误提交一次）
+__pycache__/
+*.pyc
+
 # 临时目录（产物校验导出的图、冒烟测试副本等）
 tmp/
 
