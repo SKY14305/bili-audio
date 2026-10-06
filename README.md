@@ -10,7 +10,7 @@ B 站音频收听器（Tauri 2.0 / Windows）：只取音频流播放，不加�
 | 文件 | 说明 | 大小 |
 |---|---|---|
 | `bili-audio.exe` | 便携版，双击即用，免安装 | ~11.2 MB |
-| `bili Audio_1.0.0_x64-setup.exe` | NSIS 安装包（当前用户安装，生成开始菜单 / 桌面快捷方式） | ~2.6 MB |
+| `bili Audio_1.1.0_x64-setup.exe` | NSIS 安装包（当前用户安装，生成开始菜单 / 桌面快捷方式） | ~2.6 MB |
 
 - 依赖系统自带 WebView2 运行时（Win10/11 已内置，Win7 需手动安装）。
 - 登录态 / 历史 / 播放列表 / 收藏列表都存在 **exe 同级的 `data/`**，换机拷目录即可。
@@ -34,7 +34,7 @@ source /e/tauri-env/env.sh     # 注入 MSVC + cargo 环境（Windows，路径�
 npx tauri build                # 出 EXE + NSIS 安装包（增量约 2 分钟）
 ```
 
-产物在 `src-tauri/target/release/`（`bili-audio.exe` 与 `bundle/nsis/*-setup.exe`），
+产物在 `src-tauri/target/release/`（`bili-audio.exe` 与 `bundle/nsis/*-setup.exe`）。
 
 开发调试：双击 `启动开发模式.bat` —— 构建 dev-server 版并打开 <http://127.0.0.1:37210>。
 **release 构建恒不监听任何端口**，界面与全部 API 都走自定义协议 `biliaudio://`。
@@ -50,7 +50,7 @@ python tools/verify-audio.py              # 音频链路 22 条（需先构建 d
 python tools/verify-space.py              # UP 投稿分页：投稿多的 UP 也能翻页（同上）
 python tools/verify-comments.py           # 评论链路：楼中楼也要带 UP 主 mid（同上）
 python tools/verify-chapters.py           # 章节链路 41 条：接口输出对照独立参考实现 + 真实页面链路（同上）
-python tools/verify-artifacts.py          # 产物本体：内嵌前端 / 图标 / 产品名
+python tools/verify-artifacts.py          # 产物本体 42 条：内嵌前端 / 图标 / 产品名 / EXE 版本资源
 python tools/verify-no-port.py            # 正式产物不监听任何端口（会短暂起一次 GUI）
 ```
 

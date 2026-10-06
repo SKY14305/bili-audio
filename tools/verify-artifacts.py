@@ -13,16 +13,45 @@
 
 退出码：0 全部通过 / 1 有校验失败。
 """
+import ctypes
+import json
 import os
 import struct
 import sys
+from ctypes import wintypes
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CONF = os.path.join(ROOT, "src-tauri", "tauri.conf.json")
 ICON_ICO = os.path.join(ROOT, "src-tauri", "icons", "icon.ico")
 PORTABLE = os.path.join(ROOT, "dist", "bili-audio.exe")
-SETUP = os.path.join(ROOT, "dist", "bili Audio_1.0.0_x64-setup.exe")
 PRODUCT = "bili Audio"
 STALE_NAME = "B站音频台"
+
+# 版本号只有一个来源（tauri.conf.json）：安装包文件名与 EXE 的版本资源都必须跟着它走。
+# 刻意不把版本号写死在这里 —— 否则每次发版都要改本脚本，而改漏了不会有任何报错。
+VERSION = json.load(open(CONF, encoding="utf-8"))["version"]
+SETUP = os.path.join(ROOT, "dist", "bili Audio_%s_x64-setup.exe" % VERSION)
+
+
+def pe_file_version(path):
+    """读 PE 的 VS_VERSIONINFO 文件版本（如 "1.1.0.0"）；读不到返回 None。
+
+    这条是用来抓「改了版本号但没重新构建」的：源码版本号变了、产物里还是旧号，
+    属于最容易漏、且只有用户双击属性页才会发现的一类错。
+    """
+    v = ctypes.windll.version
+    size = v.GetFileVersionInfoSizeW(path, None)
+    if not size:
+        return None
+    buf = ctypes.create_string_buffer(size)
+    if not v.GetFileVersionInfoW(path, 0, size, buf):
+        return None
+    ptr, ln = ctypes.c_void_p(), wintypes.UINT()
+    if not v.VerQueryValueW(buf, "\\", ctypes.byref(ptr), ctypes.byref(ln)):
+        return None
+    ffi = ctypes.cast(ptr, ctypes.POINTER(ctypes.c_uint32 * 14)).contents
+    ms, ls = ffi[2], ffi[3]
+    return "%d.%d.%d.%d" % (ms >> 16, ms & 0xFFFF, ls >> 16, ls & 0xFFFF)
 FRONTEND_MARKERS = [
     "mergeInsertNext",          # 下一首播放：移动而非重复
     "mergeAppend",              # 添加播放列表：跳过已存在条目
@@ -207,6 +236,9 @@ def main():
     for size in (32, 256):
         check(raw.count(sig[size]) > 0, f"图标 {size}x{size} 已作为资源嵌入")
     check(raw.count(PRODUCT.encode("utf-16-le")) > 0, f"版本信息含产品名 “{PRODUCT}”")
+    fv = pe_file_version(PORTABLE)
+    check(fv == VERSION + ".0",
+          f"EXE 版本资源 = {VERSION}（实得 {fv}）—— 改了版本号必须重新构建")
     check(raw.count(STALE_NAME.encode("utf-16-le")) == 0, f"无旧名残留 “{STALE_NAME}”")
     for m in FRONTEND_MARKERS:
         check(raw.count(m.encode()) > 0, f"内嵌前端含 {m}")
