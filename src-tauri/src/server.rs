@@ -64,6 +64,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/search", get(api_search))
         .route("/api/view", get(api_view))
         .route("/api/pages", get(api_pages))
+        .route("/api/chapters", get(api_chapters))
         .route("/api/comments", get(api_comments))
         .route("/api/playurl", get(api_playurl))
         .route("/api/space", get(api_space))
@@ -467,7 +468,128 @@ async fn api_pages(
 }
 
 // ---------------------------------------------------------------------------
-// b-3. 评论
+// b-3. 视频章节（B 站「视频节点」）
+// ---------------------------------------------------------------------------
+/// 章节缓存有效期：节点由 UP 主手动设置，极少变动；6 小时与分P信息同步。
+const CHAPTER_TTL: u64 = 6 * 3600;
+
+/// 把 player/v2 的 `view_points` 规范成前端用的章节列表。
+///
+/// 两处必须宽容（都是实测出来的口径，不是防御性编程）：
+///  - 节点是**按分P（cid）**下发的：多P 视频 P1 有 4 个节点、P4 可能是 0 个，
+///    所以调用方必须带上 cid，缓存键也必须含 cid；
+///  - 末节点的 `to` 可能比视频总时长**少 1 秒**（实测 2889 vs 2890），
+///    因此前端不能拿它当「视频长度」，只按 `from` 定位。
+fn chapters_from_player_json(data: &Value) -> Vec<Value> {
+    let arr = data
+        .get("view_points")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .or_else(|| {
+            // 老版本接口给的是单个 `view_point` 对象
+            data.get("view_point")
+                .filter(|v| v.is_object())
+                .map(|v| vec![v.clone()])
+        })
+        .unwrap_or_default();
+
+    let mut out = Vec::new();
+    for p in arr {
+        let from = p.get("from").and_then(|v| v.as_i64()).unwrap_or(-1);
+        let to = p.get("to").and_then(|v| v.as_i64()).unwrap_or(-1);
+        let title = strip_html(p.get("content").and_then(|v| v.as_str()).unwrap_or(""));
+        // 起止都健全、标题非空才算一个可点节点；缺字段的条目宁可不显示，
+        // 也不要在进度条上留一个点了不知道跳哪里的刻度
+        if from < 0 || to <= from || title.is_empty() {
+            continue;
+        }
+        out.push(json!({
+            "from": from,
+            "to": to,
+            "title": title,
+            "type": p.get("type").cloned().unwrap_or(json!(0)),
+            "img": p.get("imgUrl").and_then(|v| v.as_str()).unwrap_or(""),
+        }));
+    }
+    out
+}
+
+/// 章节节点：`/api/chapters?bvid=&cid=`。
+///
+/// 纯锦上添花的功能，因此约定：**失败不打扰用户**。
+/// 上游报错/被风控时返回 `code != 0`（前端静默当作「没有节点」），
+/// 而不是伪装成「该视频没有节点」——后者会把「拿不到」和「本来就没有」混为一谈。
+async fn api_chapters(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<Vec<(String, String)>>,
+) -> Response {
+    let bvid = qs(&Query(q.clone()), "bvid", "");
+    let cid = qs(&Query(q.clone()), "cid", "");
+    if bvid.is_empty() || cid.is_empty() {
+        // 没有 cid 就无法定位节点（节点按分P 下发），直接当作没有
+        return ok_json(&json!({"code": 0, "data": {"chapters": []}}));
+    }
+
+    let key = format!("{}:{}", bvid, cid);
+    if let Some(hit) = state.chapter_cache.lock().unwrap().get(&key).cloned() {
+        if bili::now_secs() - hit.ts < CHAPTER_TTL {
+            return ok_json(&json!({"code": 0, "data": {"chapters": hit.value, "cached": true}}));
+        }
+    }
+
+    let r = bili::bili_wbi_request(
+        &state,
+        "/x/player/wbi/v2",
+        &[("bvid", bvid.clone()), ("cid", cid.clone())],
+    )
+    .await;
+
+    let json_val = match r.ok().and_then(|r| r.json) {
+        Some(j) => j,
+        None => {
+            return ok_json(&json!({"code": -1, "message": "章节获取失败"}));
+        }
+    };
+    if json_val.get("code").and_then(|c| c.as_i64()) != Some(0) {
+        return ok_json(&json!({
+            "code": json_val.get("code").cloned().unwrap_or(json!(-1)),
+            "message": json_val.get("message").cloned().unwrap_or(json!("章节获取失败")),
+        }));
+    }
+
+    let d = json_val.get("data").cloned().unwrap_or(json!({}));
+    let chapters = chapters_from_player_json(&d);
+
+    // 空结果也缓存：绝大多数视频没有节点，反复去问上游纯属浪费配额
+    {
+        let mut cache = state.chapter_cache.lock().unwrap();
+        if cache.len() >= 400 {
+            let keys: Vec<String> = cache.keys().cloned().collect();
+            for k in keys.iter().take(keys.len() / 2) {
+                cache.remove(k);
+            }
+        }
+        cache.insert(
+            key,
+            crate::state::PageCacheEntry {
+                ts: bili::now_secs(),
+                value: json!(chapters.clone()),
+            },
+        );
+    }
+
+    ok_json(&json!({
+        "code": 0,
+        "data": {
+            "bvid": bvid,
+            "cid": cid,
+            "chapters": chapters,
+        }
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// b-4. 评论
 // ---------------------------------------------------------------------------
 /// 一条评论节点 → 前端结构；`with_children` 时带出最多 3 条楼中楼。
 ///
@@ -1825,5 +1947,64 @@ mod tests {
         assert_eq!(get("platform"), "web");
         assert_eq!(get("web_location"), "1550101");
         assert_eq!(get("keyword"), "");
+    }
+
+    /// 章节规范化：字段名映射（content→title / imgUrl→img）+ 只留可点节点。
+    #[test]
+    fn chapters_normalize_view_points() {
+        let data = json!({
+            "view_points": [
+                { "type": 2, "from": 0, "to": 63, "content": "概述",
+                  "imgUrl": "http://i0.hdslb.com/bfs/vchapter/1_0.jpg" },
+                { "type": 2, "from": 63, "to": 312, "content": "基本问题" },
+                // 下面的都必须被丢掉：to<=from、from 为负、标题为空
+                { "type": 2, "from": 312, "to": 312, "content": "零长度" },
+                { "type": 2, "from": -5, "to": 400, "content": "负数起点" },
+                { "type": 2, "from": 400, "to": 500, "content": "   " },
+                { "type": 2, "from": 500, "to": 600 },
+            ]
+        });
+        let cs = chapters_from_player_json(&data);
+        assert_eq!(cs.len(), 2, "只保留起止健全且标题非空的节点");
+        assert_eq!(cs[0]["from"], json!(0));
+        assert_eq!(cs[0]["to"], json!(63));
+        assert_eq!(cs[0]["title"], json!("概述"));
+        assert_eq!(cs[0]["type"], json!(2));
+        assert_eq!(cs[0]["img"], json!("http://i0.hdslb.com/bfs/vchapter/1_0.jpg"));
+        assert_eq!(cs[1]["title"], json!("基本问题"));
+        assert_eq!(cs[1]["img"], json!(""));
+    }
+
+    /// 没有节点的视频是**绝大多数**（267 条抽样里仅 8 条有）：必须安静地返回空表。
+    #[test]
+    fn chapters_empty_when_absent() {
+        assert!(chapters_from_player_json(&json!({ "view_points": [] })).is_empty());
+        assert!(chapters_from_player_json(&json!({})).is_empty());
+        assert!(chapters_from_player_json(&json!({ "view_points": null })).is_empty());
+    }
+
+    /// 老接口给的是单个 `view_point` 对象，不能直接丢掉。
+    #[test]
+    fn chapters_accept_legacy_single_view_point() {
+        let data = json!({
+            "view_point": { "type": 1, "from": 0, "to": 120, "content": "正片" }
+        });
+        let cs = chapters_from_player_json(&data);
+        assert_eq!(cs.len(), 1);
+        assert_eq!(cs[0]["title"], json!("正片"));
+        assert_eq!(cs[0]["type"], json!(1));
+    }
+
+    /// 节点标题里的 HTML 要清掉（风控把正文当富文本回时见过 `<em class="keyword">`）。
+    #[test]
+    fn chapters_strip_html_in_title() {
+        let data = json!({
+            "view_points": [
+                { "type": 2, "from": 0, "to": 10,
+                  "content": "<em class=\"keyword\">开场</em> &amp; 致谢" }
+            ]
+        });
+        let cs = chapters_from_player_json(&data);
+        assert_eq!(cs[0]["title"], json!("开场 & 致谢"));
     }
 }

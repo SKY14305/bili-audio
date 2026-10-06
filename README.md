@@ -19,6 +19,9 @@ B 站音频收听器（Tauri 2.0 / Windows）：只取音频流播放，不加�
 
 - **搜索**：关键词搜视频，纯文字列表（标题 / UP 主 / 时长 / 播放量）。
 - **播放**：DASH 音频流；播放暂停、进度拖动、上一首 / 下一首、自动连播、倍速、音量。
+- **视频章节节点**：原视频带「视频节点」时，进度条上按位置显示小圆点标识（直径 = 进度条高度，
+  常态只比条底色深一点，悬停时加粗加深）；悬停显示章节标题与时间区间，点击直接跳到该节点起点。
+  没有节点的视频不会多出任何东西。
 - **历史 / 评论 / UP 主页 / 合集**：播放历史、视频评论、UP 投稿与合集列表。
 - **收藏**：本地收藏列表（歌单）管理、导入 / 导出；账号收藏夹与「我的关注」需登录。
 - **游客优先**：不登录也能用，遇到需登录的接口弹二维码扫码。
@@ -42,15 +45,17 @@ npx tauri build                # 出 EXE + NSIS 安装包（增量约 2 分钟�
 NODE=node; SK=~/.workbuddy/skills/ui-assert-verify/scripts/verify-ui.js
 $NODE "$SK" tools/ui-spec.json            # 版式 17 条
 $NODE "$SK" tools/ui-spec-behavior.json   # 行为 50 条（队列语义 / 弹层互斥 / mid 兜底 / 角标 / 静音态 / 计数格式）
+$NODE "$SK" tools/ui-spec-chapters.json   # 章节节点 52 条（圆点标识与尺寸 / 排布与收边 / 命中半径 / 浮层 / 点击跳转 / 无节点不长）
 python tools/verify-audio.py              # 音频链路 22 条（需先构建 dev-server 版，见 docs）
 python tools/verify-space.py              # UP 投稿分页：投稿多的 UP 也能翻页（同上）
 python tools/verify-comments.py           # 评论链路：楼中楼也要带 UP 主 mid（同上）
+python tools/verify-chapters.py           # 章节链路 41 条：接口输出对照独立参考实现 + 真实页面链路（同上）
 python tools/verify-artifacts.py          # 产物本体：内嵌前端 / 图标 / 产品名
 python tools/verify-no-port.py            # 正式产物不监听任何端口（会短暂起一次 GUI）
 ```
 
-两份 spec 分开跑（各自的 setup 会互相踩状态）；`viewport` 必须等于真实窗口尺寸（420×780）。
-两个「打真实接口」的用例需先构建 dev-server 版 EXE，构建与注意事项见 `docs/internals.md`。
+三份 spec 分开跑（各自的 setup 会互相踩状态）；`viewport` 必须等于真实窗口尺寸（420×780）。
+三个「打真实接口」的用例需先构建 dev-server 版 EXE，构建与注意事项见 `docs/internals.md`。
 
 ## 目录
 

@@ -46,6 +46,18 @@ FRONTEND_MARKERS = [
     "fmtCount",                 # 计数标识超万位换 W+（投稿/列表/历史/评论/收藏夹）
     "videoLoadingMore",         # 加载更多防连点
     "order_avoided",            # 空间投稿的页面版参数（少一个就静默返回空 → 0 投稿）
+    "loadSeekChapters",         # 进度条章节节点：按 cid 取（多P 各自一套，不 await 起播）
+    "seekMarkAt",               # 节点命中判定：按鼠标横坐标找最近刻度
+    "seekChaptersKey",          # 切视频后丢弃晚到的节点响应（不串台）
+    "seekMarks",                # 进度条上的章节刻度层
+    "圆点标识",                  # 章节节点从竖线改成比实时进度小一号的圆点（CSS 注释随样式原样内嵌）
+    "直径与进度条等高",           # 圆点直径 = 进度条高度（6px），不是写死的独立尺寸
+    "rgba(120, 130, 148, 0.45)",  # 常态圆点色：与条底同色系、只加深透明度（hover 才上深灰）
+]
+# Rust 侧的字面量：证明后端改动也进了 EXE（前端内嵌字符串证明不了这一点）
+BACKEND_MARKERS = [
+    "/api/chapters",            # 章节端点
+    "view_points",              # B 站 player/v2 的章节字段
 ]
 
 failures = []
@@ -198,6 +210,8 @@ def main():
     check(raw.count(STALE_NAME.encode("utf-16-le")) == 0, f"无旧名残留 “{STALE_NAME}”")
     for m in FRONTEND_MARKERS:
         check(raw.count(m.encode()) > 0, f"内嵌前端含 {m}")
+    for m in BACKEND_MARKERS:
+        check(raw.count(m.encode()) > 0, f"二进制含 {m}")
 
     print(f"[2] NSIS 安装包  {SETUP}")
     if not os.path.exists(SETUP):

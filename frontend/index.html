@@ -126,6 +126,9 @@
       <div class="player-progress-row">
         <div class="progress" id="seekBar" title="拖动或点击调整进度">
           <div class="progress-fill" id="seekFill"></div>
+          <!-- 视频章节节点（原视频有「视频节点」时才长出刻度；命中判定在 #seekBar 上做，
+               这样节点不会抢走拖动） -->
+          <div class="seek-marks" id="seekMarks"></div>
           <div class="progress-thumb" id="seekThumb"></div>
         </div>
         <div class="progress-time" id="seekTime">00:00 / 00:00</div>
@@ -191,6 +194,12 @@
     <button id="muteBtn" class="mute-btn" aria-pressed="false" title="静音">静音</button>
     <input id="volumeSlider" type="range" min="0" max="100" step="1" value="100" aria-label="音量">
     <span id="volumeValue" class="volume-value">100</span>
+  </div>
+
+  <!-- 进度条章节节点浮层：hover 节点时显示章节标题与时间区间（fixed，浮在播放条之上） -->
+  <div id="seekTip" class="seek-tip hidden">
+    <div class="seek-tip-title" id="seekTipTitle"></div>
+    <div class="seek-tip-time" id="seekTipTime"></div>
   </div>
 
   <!-- 顶部账号菜单：收藏夹 / 退出登录 -->

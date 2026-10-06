@@ -1307,6 +1307,89 @@ button:active {
   opacity: 1;
 }
 
+/*
+ * 章节节点（B 站「视频节点」）：
+ *   .seek-marks 只负责定位基准，刻度本身 pointer-events:none ——
+ *   命中判定交给 #seekBar 的 mousemove/click（按鼠标横坐标找最近刻度），
+ *   否则刻度会吃掉 mousedown，用户在节点附近就拖不动进度条了。
+ */
+.seek-marks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* 时长未知（音频元数据未加载）时先不显示刻度：否则它们会全挤在最左端 */
+.seek-marks.unpositioned {
+  display: none;
+}
+
+/* 定位盒：宽 9px / 高比进度条高 4px，中心即节点坐标点。
+   它只是几何基准（命中判定与浮层定位都按它的中心算），视觉尺寸在下面的 ::before。
+   横坐标由 JS 写成 max(3px, min(100% - 3px, from/时长%))，
+   把圆点**整个**收在条身内 —— 改圆点直径时记得同步那个 3px（半径）。 */
+.seek-mark {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 9px;
+  margin-left: -4.5px;
+  pointer-events: none;
+}
+
+/* 圆点标识：直径与进度条等高（6px）；常态只比条底色深一点（同色系、透明度更高），
+   hover 才加粗加深到原来的常态色 */
+.seek-mark::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(120, 130, 148, 0.45);
+  transition: background 0.12s linear, width 0.12s linear, height 0.12s linear;
+}
+
+/* 鼠标落在命中半径内时，该圆点加粗加深（同时上方出现标题浮层） */
+.seek-mark.hot::before {
+  width: 8px;
+  height: 8px;
+  background: rgba(15, 23, 42, 0.42);
+}
+
+/* 章节标题浮层：位置由 JS 按刻度 rect 计算，贴着播放条上沿。
+   显隐仍走全局 .hidden，不在这里重复声明。 */
+.seek-tip {
+  position: fixed;
+  z-index: 135;
+  max-width: 240px;
+  padding: 6px 9px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.14);
+  pointer-events: none;
+}
+
+.seek-tip-title {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.seek-tip-time {
+  margin-top: 2px;
+  font-size: 11px;
+  line-height: 14px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
 .progress-time {
   flex: 0 0 auto;
   font-size: 11px;

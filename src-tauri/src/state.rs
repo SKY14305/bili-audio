@@ -25,7 +25,7 @@ pub struct PlayUrlEntry {
     pub resp: serde_json::Value,
 }
 
-/// 分P信息缓存条目
+/// 分P信息缓存条目（章节缓存也复用它：都只是「一份带时间戳的 JSON」）
 #[derive(Clone)]
 pub struct PageCacheEntry {
     pub ts: u64,
@@ -40,6 +40,9 @@ pub struct AppState {
     pub wbi: Arc<Mutex<WbiCache>>,
     pub playurl_cache: Arc<Mutex<HashMap<String, PlayUrlEntry>>>,
     pub page_cache: Arc<Mutex<HashMap<String, PageCacheEntry>>>,
+    /// 章节（B 站「视频节点」）缓存：键 `bvid:cid` —— 节点是**按分P**给的，
+    /// 只按 bvid 缓存会让多P 视频的不同分P 互相串台。
+    pub chapter_cache: Arc<Mutex<HashMap<String, PageCacheEntry>>>,
     pub app: AppHandle,
 }
 
@@ -58,6 +61,7 @@ impl AppState {
             wbi: Arc::new(Mutex::new(WbiCache::default())),
             playurl_cache: Arc::new(Mutex::new(HashMap::new())),
             page_cache: Arc::new(Mutex::new(HashMap::new())),
+            chapter_cache: Arc::new(Mutex::new(HashMap::new())),
             app,
         };
 

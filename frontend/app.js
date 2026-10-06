@@ -2628,6 +2628,7 @@ function stopPlayback() {
   setPlayIcon(false);
   setPlayerDisplay(null);
   renderSeek();
+  clearSeekChapters(); // 停止播放就不该再挂着上一条内容的章节刻度
   markPlaying();
 }
 
@@ -3544,6 +3545,11 @@ async function playQueue() {
       saveState();
     }
 
+    // 章节节点（B 站「视频节点」）：有就画在进度条上，没有就静默。
+    // 必须在 cid 就位之后 —— 节点是按分P 下发的，多P 视频每个分 P 各一套。
+    // 不 await：它是附赠信息，绝不能拖慢起播。
+    loadSeekChapters(entry.bvid, entry.cid);
+
     const purl = await api(
       '/api/playurl?bvid=' + encodeURIComponent(entry.bvid) +
       '&cid=' + encodeURIComponent(entry.cid)
@@ -4253,6 +4259,7 @@ function paintSeek(cur, dur) {
 /** 以 audio 当前状态刷新进度条 */
 function renderSeek() {
   paintSeek(audio.currentTime || 0, audio.duration || 0);
+  layoutSeekMarks();
 }
 
 /** 根据鼠标横坐标计算百分比并 seek */
@@ -4267,6 +4274,210 @@ function seekFromEvent(clientX) {
   audio.currentTime = pct * d;
   paintSeek(pct * d, d);
   resetWatchdog();
+}
+
+// ---------------------------------------------------------------------------
+// 进度条章节节点（B 站「视频节点」）
+//
+// 数据源：/api/chapters → B 站 player/v2 的 view_points。
+// 三条实测口径（改动前先看）：
+//   1. 节点是**按分P（cid）**下发的，多P 视频每个分 P 各一套，所以每次换 cid 都要重取；
+//   2. 节点只有约 3% 的视频有（长视频 / 知识区居多），**没有是常态**，不该有任何提示；
+//   3. 末节点的 `to` 可能比视频总时长少 1 秒（实测 2889 vs 2890），
+//      所以横坐标只按 `from` 算，不拿 to 当视频长度。
+// 这是锦上添花的功能：链路失败一律静默，不影响播放。
+// ---------------------------------------------------------------------------
+let seekChapters = []; // 当前分P 的节点 [{from,to,title,img}]
+let seekChaptersKey = ''; // 这批节点属于哪条内容（bvid:cid）——晚到的响应不能盖到新视频上
+let seekMarksDur = -1; // 上次排布用的时长，避免 timeupdate 里反复写样式
+let seekHotIdx = -1; // 当前 hover / 命中的节点下标
+
+/** 进度条的提示文案（原生 title）从 HTML 读一次，hover 节点时临时摘掉 */
+const SEEK_HINT = ($('seekBar') && $('seekBar').getAttribute('title')) || '';
+
+/** 取当前分P 的章节节点；无节点 / 失败都静默 */
+async function loadSeekChapters(bvid, cid) {
+  if (!bvid || !cid) {
+    clearSeekChapters();
+    return;
+  }
+  const key = bvid + ':' + cid;
+  // 先撤掉上一条内容的刻度：否则切到一条没有节点的视频时，旧刻度会一直挂着
+  seekChaptersKey = key;
+  if (seekChapters.length) {
+    seekChapters = [];
+    buildSeekMarks();
+  }
+  let list = [];
+  try {
+    const r = await api(
+      '/api/chapters?bvid=' + encodeURIComponent(bvid) + '&cid=' + encodeURIComponent(cid)
+    );
+    if (r.code === 0) list = (r.data && r.data.chapters) || [];
+  } catch (e) {}
+  applySeekChapters(key, list);
+}
+
+/** 应用一批节点；key 与当前内容不一致说明用户已经切歌，直接丢弃 */
+function applySeekChapters(key, list) {
+  if (key !== seekChaptersKey) return;
+  seekChapters = (list || [])
+    .filter((c) => c && Number(c.from) >= 0)
+    .map((c) => ({
+      from: Number(c.from) || 0,
+      to: Number(c.to) || 0,
+      title: c.title || '',
+      img: c.img || '',
+    }));
+  buildSeekMarks();
+}
+
+function clearSeekChapters() {
+  seekChapters = [];
+  seekChaptersKey = '';
+  buildSeekMarks();
+}
+
+/** 重建刻度 DOM（节点数量变化时才需要；位置另由 layoutSeekMarks 负责） */
+function buildSeekMarks() {
+  const box = $('seekMarks');
+  if (!box) return;
+  box.innerHTML = '';
+  seekMarksDur = -1;
+  seekHotIdx = -1;
+  hideSeekTip();
+  seekChapters.forEach((c, i) => {
+    const m = el('div', 'seek-mark');
+    m.dataset.idx = String(i);
+    // 刻度自身不留 title：否则浏览器会顺着 DOM 找到 #seekBar 的原生提示，
+    // 与自绘浮层叠在一起。标题只走 #seekTip。
+    m.title = '';
+    box.appendChild(m);
+  });
+  layoutSeekMarks();
+}
+
+/** 按时长排布刻度横坐标（时长常常晚于节点数据到达，所以单独一步） */
+function layoutSeekMarks() {
+  const box = $('seekMarks');
+  if (!box) return;
+  if (!seekChapters.length) {
+    box.classList.add('unpositioned');
+    return;
+  }
+  const d = audio.duration || 0;
+  if (!(d > 0)) {
+    // 时长还没到位（音频元数据未加载）→ 刻度先不显示。
+    // 否则 N 个刻度会全挤在进度条最左端，看着像是排布错了。
+    box.classList.add('unpositioned');
+    seekMarksDur = -1;
+    return;
+  }
+  box.classList.remove('unpositioned');
+  if (d === seekMarksDur) return;
+  seekMarksDur = d;
+  // 圆点是圆的，就没有「贴边只切掉一条细线」这种便宜事了：首节点恒在 0%、末节点常常贴右端，
+  // 不收的话会有半个圆悬在进度条外面。这里用 CSS 的 max/min 把**圆点中心**夹在
+  // 距两端 dotR 之内（.seek-mark 的 margin-left 让它正好等于 left），
+  // 交给 CSS 算而不是在 JS 里量像素宽度 —— 窗口尺寸变化时它会自己跟着走。
+  const dotR = 3; // 圆点半径 = 进度条高度 6px 的一半
+  for (let i = 0; i < seekChapters.length; i++) {
+    const mk = box.children[i];
+    if (!mk) continue;
+    const pct = (seekChapters[i].from / d) * 100;
+    mk.style.left = `max(${dotR}px, min(calc(100% - ${dotR}px), ${pct}%))`;
+  }
+}
+
+/**
+ * 鼠标横坐标命中的节点下标（找不到返回 -1）。
+ * 命中半径 ±7px（刻度视觉宽 9px，中心对齐坐标点）：刻度之间一般相隔几十像素，
+ * 只有节点极密时才会出现「取最近的那个」。
+ */
+function seekMarkAt(clientX) {
+  const box = $('seekMarks');
+  if (!box || !seekChapters.length || seekMarksDur <= 0) return -1;
+  let best = -1;
+  let bestDx = 7;
+  for (let i = 0; i < box.children.length; i++) {
+    const r = box.children[i].getBoundingClientRect();
+    if (r.width <= 0 && r.height <= 0) continue; // 还没排布
+    const dx = Math.abs(clientX - (r.left + r.width / 2));
+    if (dx <= bestDx) {
+      bestDx = dx;
+      best = i;
+    }
+  }
+  return best;
+}
+
+/** 高亮某个刻度并显示标题浮层；-1 表示全部取消 */
+function setSeekHot(i) {
+  if (i === seekHotIdx) return;
+  const box = $('seekMarks');
+  if (box && seekHotIdx >= 0 && box.children[seekHotIdx]) {
+    box.children[seekHotIdx].classList.remove('hot');
+  }
+  seekHotIdx = i;
+  if (i < 0) {
+    hideSeekTip();
+    return;
+  }
+  if (box && box.children[i]) box.children[i].classList.add('hot');
+  showSeekTip(i);
+}
+
+/** 显示章节标题浮层：摆到刻度正上方，再按窗口与播放条边界收边 */
+function showSeekTip(i) {
+  const c = seekChapters[i];
+  const tip = $('seekTip');
+  const bar = $('seekBar');
+  const box = $('seekMarks');
+  const mk = box && box.children[i];
+  if (!c || !tip || !bar || !mk) return;
+
+  $('seekTipTitle').textContent = c.title || '';
+  $('seekTipTime').textContent =
+    fmtDur(c.from) + (c.to > c.from ? ' - ' + fmtDur(c.to) : '');
+
+  tip.classList.remove('hidden');
+  // 浮层是 fixed，先按刻度中心摆好，量出宽高后再夹住两边
+  const r = mk.getBoundingClientRect();
+  const barR = bar.getBoundingClientRect();
+  const w = tip.offsetWidth;
+  const h = tip.offsetHeight;
+  const vw = document.documentElement.clientWidth;
+  let left = r.left + r.width / 2 - w / 2;
+  left = Math.max(6, Math.min(vw - w - 6, left));
+  const barTop = $('playerBar') ? $('playerBar').getBoundingClientRect().top : barR.top;
+  const top = Math.max(barTop + 4, barR.top - h - 6);
+  tip.style.left = left + 'px';
+  tip.style.top = top + 'px';
+
+  // 原生提示会顺着 DOM 冒出来，悬停节点期间先摘掉；离开时恢复
+  if (SEEK_HINT) bar.removeAttribute('title');
+}
+
+function hideSeekTip() {
+  const tip = $('seekTip');
+  if (tip) tip.classList.add('hidden');
+  if (SEEK_HINT && $('seekBar')) $('seekBar').setAttribute('title', SEEK_HINT);
+}
+
+/** 点击节点 → 跳到该节点起点 */
+function seekToChapter(i) {
+  const c = seekChapters[i];
+  const d = audio.duration || 0;
+  if (!c || !(d > 0)) return;
+  const target = Math.max(0, Math.min(c.from, d - 0.5));
+  // 与恢复进度同口径：媒体引擎还没拿到元数据时赋值可能抛错，
+  // 但界面该立刻反映「已经跳到这个节点」
+  try {
+    audio.currentTime = target;
+  } catch (e) {}
+  paintSeek(target, d);
+  resetWatchdog();
+  setSeekHot(i);
 }
 
 // ---------------------------------------------------------------------------
@@ -4535,10 +4746,27 @@ $('playBtn').addEventListener('click', () => {
 $('prevBtn').addEventListener('click', prev);
 $('nextBtn').addEventListener('click', next);
 
-$('seekBar').addEventListener('click', (e) => seekFromEvent(e.clientX));
+$('seekBar').addEventListener('click', (e) => {
+  // 点在节点上就跳到节点（而非按坐标 seek）：命中判定用刻度中心，不靠 DOM 命中，
+  // 这样刻度不必吃 pointer-events，用户在节点旁边照样能拖。
+  const i = seekMarkAt(e.clientX);
+  if (i >= 0) {
+    seekToChapter(i);
+    return;
+  }
+  seekFromEvent(e.clientX);
+});
+$('seekBar').addEventListener('mousemove', (e) => {
+  if (seeking) return; // 拖动中不弹浮层，免得跟着鼠标一路闪
+  setSeekHot(seekMarkAt(e.clientX));
+});
+$('seekBar').addEventListener('mouseleave', () => {
+  if (!seeking) setSeekHot(-1);
+});
 $('seekBar').addEventListener('mousedown', (e) => {
   if (e.button !== 0) return;
   seeking = true;
+  setSeekHot(-1);
   seekFromEvent(e.clientX);
 });
 document.addEventListener('mousemove', (e) => {
